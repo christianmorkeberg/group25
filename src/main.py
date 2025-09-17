@@ -8,3 +8,4 @@ Suggested structure:
 - Prepare input data for a single simulation or multiple simulations.
 - Execute main function when the script is run directly.
 """
+print("I'm a first commit")

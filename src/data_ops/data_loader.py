@@ -5,14 +5,14 @@ import json
 import csv
 import pandas as pd
 from pathlib import Path
-
+from utils import load_dataset
 from pathlib import Path
 from dataclasses import dataclass
 from logging import Logger
 import pandas as pd
 import xarray as xr
 import numpy as np
-import yaml
+#import yaml
 
 
 class DataLoader:
@@ -29,7 +29,7 @@ class DataLoader:
     question: str
     input_path: Path
 
-    def __init__(self):
+    def __init__(self, question: str, input_path: Path):
         """
         Post-initialization to load and validate all required datasets (placeholder function)
 
@@ -42,7 +42,10 @@ class DataLoader:
         # Load CSV and json datasets
         self.data()
         """
-        pass
+        self.question = question
+        self.input_path = input_path
+        if question:
+            self._load_dataset(question)
 
     def _load_dataset(self, question_name: str):
         """Helper function to load all CSV or json files, using the appropriate method based on file extension.
@@ -51,7 +54,16 @@ class DataLoader:
         call the load_dataset() function from utils.py to load all files in the input_path directory
         save all data as class attributes (e.g. self.demand, self.wind, etc.), structured as pandas DataFrames or Series (or other format as prefered)
         """
-        pass
+        # Load the data
+        data = load_dataset(question_name)
+        # 
+        if data:
+            for key, value in data.items():
+                setattr(self, key, value)
+            print(f"Loaded {len(data)} files from {self.input_path}")
+        else:
+            print(f"No data loaded from {self.input_path}")
+
 
 
     def _load_data_file(self, question_name: str, file_name: str):

@@ -8,4 +8,12 @@ Suggested structure:
 - Prepare input data for a single simulation or multiple simulations.
 - Execute main function when the script is run directly.
 """
-print("I'm a frog")
+# Imports
+from data_ops.data_loader import *
+
+# Instantiate dataloader 
+dataloader = DataLoader(question='question_1a', input_path=Path('data/question_1a/'))
+
+from opt_model.opt_model import build_and_solve 
+
+build_and_solve(dataloader)

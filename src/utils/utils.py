@@ -7,7 +7,7 @@ from pathlib import Path
 
 # example function to load data from a specified directory
 def load_dataset(question_name):
-    base_path = Path("../data") / question_name
+    base_path = Path("data") / question_name
     result = {}
  
     for file_path in base_path.glob("*"):

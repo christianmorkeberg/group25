@@ -1,0 +1,8 @@
+{
+  "pv_scale": 1.0,
+  "import_tariff_scale": 0.1,
+  "export_tariff_scale": 1.0,
+  "price_scale": 1.0,
+  "max_import_kW": 1.0,
+  "max_export_kW": 1.0
+}

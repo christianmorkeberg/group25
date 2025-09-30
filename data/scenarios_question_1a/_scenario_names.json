@@ -1,0 +1,12 @@
+{
+    "Base case":"data/scenarios_question_1a/base_scaling.json",
+    "High Export Tariff":"data/scenarios_question_1a/high_export_tariff.json",
+    "Low Export Tariff":"data/scenarios_question_1a/low_export_tariff.json",
+    "Low Import Tariff":"data/scenarios_question_1a/low_import_tariff.json",
+    "High Import Tariff":"data/scenarios_question_1a/high_import_tariff.json",
+    "High PV":"data/scenarios_question_1a/high_pv_scaling.json",
+    "Low PV":"data/scenarios_question_1a/low_pv_scaling.json",
+    "High PV & Low Export Tariff":"data/scenarios_question_1a/high_pv_low_export_tariff.json",
+    "Low Load":"data/scenarios_question_1a/low_load.json",
+    "High Load":"data/scenarios_question_1a/high_load.json"
+}

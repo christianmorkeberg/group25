@@ -1,13 +1,16 @@
 from pathlib import Path
 from typing import Dict, List
-
+from data_ops.data_visualizer import DataVisualizer
 
 class Runner:
     """
     Handles configuration setting, data loading and preparation, model(s) execution, results saving and ploting
     """
 
-    def __init__(self) -> None:
+    def __init__(self,show_plots=False,save_plots=False,question=None) -> None:
+        self.show_plots = show_plots
+        self.save_plots = save_plots
+        self.question = question
         """Initialize the Runner."""
 
     def _load_config(self) -> None:
@@ -26,18 +29,68 @@ class Runner:
         # Extend data_loader to handle multiple scenarios/questions
         # Prepare data using data_loader for multiple scenarios/questions
         
-    def run_single_simulation(self,Args) -> None:
+    def run_single_simulation(self, question, input_path, scaling_path):
         """
-        Run a single simulation for a given question and simulation path (placeholder method).
-
-        Args (examples):
-            question: The question name for the simulation
-            simulation_path: The path to the simulation data
-
+        Run a single simulation for a given question, input path, and scaling file.
+        Returns results and profit.
         """
-        # Initialize Optimization Model for the given question and simulation path
-        # Run the model
-        pass
-    def run_all_simulations(self) -> None:
-        """Run all simulations for the configured scenarios (placeholder method)."""
-        pass
+        import json
+        from data_ops.data_loader import DataLoader
+        from opt_model.opt_model import Consumer, DER, Grid, EnergySystemModel
+
+        dataloader = DataLoader(question=question, input_path=input_path)
+        der_production = getattr(dataloader, 'DER_production', None)
+        bus_params = getattr(dataloader, 'bus_params', None)
+        appliance_params = getattr(dataloader, 'appliance_params', None)
+        usage_preference = getattr(dataloader, 'usage_preference', None)
+
+        with open(scaling_path) as f:
+            scaling = json.load(f)
+
+        consumer = Consumer(
+            usage_preference,
+            appliance_params,
+            scale={"load_scale": scaling.get("load_scale", 1.0)}
+        )
+        # Attach discomfort_cost_per_kWh if present in scaling
+        if "discomfort_cost_per_kWh" in scaling:
+            consumer.discomfort_cost_per_kWh = scaling["discomfort_cost_per_kWh"]
+
+        der = DER(
+            der_production,
+            scale={"pv_scale": scaling.get("pv_scale", 1.0)}
+        )
+        grid = Grid(
+            bus_params,
+            scale={
+            "import_tariff_scale": scaling.get("import_tariff_scale", 1.0),
+            "export_tariff_scale": scaling.get("export_tariff_scale", 1.0),
+            "price_scale": scaling.get("price_scale", 1.0),
+            "max_import_kW": scaling.get("max_import_kW", 0.0),
+            "max_export_kW": scaling.get("max_export_kW", 0.0)
+            }
+        )
+        model = EnergySystemModel(consumer, der, grid)
+        results, profit = model.build_and_solve(debug=False,question=self.question)
+    # Only add scenario and plot in run_all_simulations, not here
+        return results, profit
+
+    def run_all_simulations(self, question, input_path, scenario_files):
+        """
+        Run all simulations for the provided scenario scaling files.
+        Returns a dict of scenario results and profits.
+        """
+        visualizer = DataVisualizer(question=self.question)
+        scenario_results = {}
+        for scenario_name, scaling_path in scenario_files.items():
+            results, profit = self.run_single_simulation(question, input_path, scaling_path)
+            scenario_results[scenario_name] = {'results': results, 'profit': profit}
+            visualizer.add_scenario(scenario_name, results, label=scenario_name)
+            print(f"Scenario: {scenario_name}, Profit: {profit}")
+        # Plot comparison
+        if self.show_plots or self.save_plots:
+            visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv'],
+                                       show_plots = self.show_plots,
+                                       save_plots=self.save_plots)
+        return scenario_results
+

@@ -208,5 +208,4 @@ __marimo__/
 
 
 # Images in img folder
-img/*.png
-img/*.jpg
+img/*

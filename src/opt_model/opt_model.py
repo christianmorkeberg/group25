@@ -126,132 +126,131 @@ class EnergySystemModel:
         self.model = None
         self.results = None
 
-    def build_and_solve(self, debug=False, question="question_1a"):
-        # --- Extract all physical parameters from the system ---
-        # PV production profile: renewable energy available each hour
-        # Import tariff: cost to buy electricity from the grid
-        # Export tariff: revenue for selling electricity to the grid
-        # Day-ahead market price: market value of electricity
-        # Total energy demand required by appliances (physical constraint)
-        # Maximum allowed import/export/load per hour (physical grid/appliance limits)
-        num_hours = len(self.der.get_pv_profile(0)) if self.der.get_pv_profile(0) else 24
-        T = list(range(num_hours))
+    # def build_and_solve(self, debug=False, question="question_1a"):
+    #     # --- Extract all physical parameters from the system ---
+    #     # PV production profile: renewable energy available each hour
+    #     # Import tariff: cost to buy electricity from the grid
+    #     # Export tariff: revenue for selling electricity to the grid
+    #     # Day-ahead market price: market value of electricity
+    #     # Total energy demand required by appliances (physical constraint)
+    #     # Maximum allowed import/export/load per hour (physical grid/appliance limits)
+    #     num_hours = len(self.der.get_pv_profile(0)) if self.der.get_pv_profile(0) else 24
+    #     T = list(range(num_hours))
 
-        P_pv = self.der.get_pv_profile(num_hours)
-        phi_imp = self.grid.get_import_tariff(num_hours) # Tariff to import from grid
-        phi_exp = self.grid.get_export_tariff(num_hours) # Tariff to export to grid
-        da_price = self.grid.get_energy_price(num_hours) # Day-ahead market price
+    #     P_pv = self.der.get_pv_profile(num_hours)
+    #     phi_imp = self.grid.get_import_tariff(num_hours) # Tariff to import from grid
+    #     phi_exp = self.grid.get_export_tariff(num_hours) # Tariff to export to grid
+    #     da_price = self.grid.get_energy_price(num_hours) # Day-ahead market price
 
-        P_min = self.consumer.get_minimum_energy_requirement()
-        P_max = self.consumer.get_maximum_energy_requirement()
-        P_down_max = self.grid.get_max_import(num_hours)
-        P_up_max   = self.grid.get_max_export(num_hours)
-        P_L_max    = self.consumer.get_max_load_per_hour(num_hours)
+    #     P_min = self.consumer.get_minimum_energy_requirement()
+    #     P_max = self.consumer.get_maximum_energy_requirement()
+    #     P_down_max = self.grid.get_max_import(num_hours)
+    #     P_up_max   = self.grid.get_max_export(num_hours)
+    #     P_L_max    = self.consumer.get_max_load_per_hour(num_hours)
 
-        if debug:
-            print("=== DATA CHECK ===")
-            print("Hours:", num_hours)
-            print(f"Total requested load between {P_min} and {P_max}",)
-            print("Sum PV capacity:", sum(P_pv))
-            print("=================\n")
+    #     if debug:
+    #         print("=== DATA CHECK ===")
+    #         print("Hours:", num_hours)
+    #         print(f"Total requested load between {P_min} and {P_max}",)
+    #         print("Sum PV capacity:", sum(P_pv))
+    #         print("=================\n")
 
-        # --- Build optimization model ---
-        # Decision variables for each hour:
-        # p_import: power imported from grid (kWh)
-        # p_export: power exported to grid (kWh)
-        # p_load: power consumed by appliances (kWh)
-        # p_pv_actual: actual PV power used (kWh)
-        # y: binary, 1=import active, 0=export active (models grid connection mode)
-        m = gp.Model("pv_grid_profit_max")
-        m.setParam("OutputFlag", 0) # 1=show solver output, 0=quiet
+    #     # --- Build optimization model ---
+    #     # Decision variables for each hour:
+    #     # p_import: power imported from grid (kWh)
+    #     # p_export: power exported to grid (kWh)
+    #     # p_load: power consumed by appliances (kWh)
+    #     # p_pv_actual: actual PV power used (kWh)
+    #     # y: binary, 1=import active, 0=export active (models grid connection mode)
+    #     m = gp.Model("pv_grid_profit_max")
+    #     m.setParam("OutputFlag", 0) # 1=show solver output, 0=quiet
 
-        p_import = {}
-        p_export = {}
-        p_load = {}
-        p_pv_actual = {}
-        y = {}
-        M = [max(P_down_max[t], P_up_max[t]) for t in T] # Big-M for binary constraints
+    #     p_import = {}
+    #     p_export = {}
+    #     p_load = {}
+    #     p_pv_actual = {}
+    #     y = {}
+    #     for t in T:
+    #         p_import[t] = m.addVar(lb=0.0, ub=P_down_max[t], name=f"p_import_{t}") # kWh imported from grid
+    #         p_export[t] = m.addVar(lb=0.0, ub=P_up_max[t], name=f"p_export_{t}") # kWh exported to grid
+    #         p_load[t] = m.addVar(lb=0.0, ub=P_L_max[t], name=f"p_load_{t}") # kWh consumed by appliances
+    #         p_pv_actual[t] = m.addVar(lb=0.0, ub=P_pv[t], name=f"p_pv_actual_{t}") # kWh of PV used
+    #         y[t] = m.addVar(vtype=GRB.BINARY, name=f"y_{t}") # Binary variable for import/export mode
+    #         # Use separate big-M values for import and export
+    #         m.addConstr(p_import[t] <= P_down_max[t] * y[t])
+    #         m.addConstr(p_export[t] <= P_up_max[t] * (1 - y[t]))
 
-        for t in T:
-            p_import[t] = m.addVar(lb=0.0, ub=P_down_max[t], name=f"p_import_{t}") # kWh imported from grid
-            p_export[t] = m.addVar(lb=0.0, ub=P_up_max[t], name=f"p_export_{t}") # kWh exported to grid
-            p_load[t] = m.addVar(lb=0.0, ub=P_L_max[t], name=f"p_load_{t}") # kWh consumed by appliances
-            p_pv_actual[t] = m.addVar(lb=0.0, ub=P_pv[t], name=f"p_pv_actual_{t}") # kWh of PV used
-            y[t] = m.addVar(vtype=GRB.BINARY, name=f"y_{t}") # Binary variable for import/export mode
-            m.addConstr(p_import[t] <= M[t] * y[t])
-            m.addConstr(p_export[t] <= M[t] * (1 - y[t]))
+    #     m.update()
 
-        m.update()
+    #     # --- Objective selection ---
+    #     if question == "question_1a":
+    #         # Maximize profit from trading electricity (original)
+    #         obj_terms = []
+    #         for t in T:
+    #             obj_terms.append((da_price[t] - phi_exp[t]) * p_export[t] - (da_price[t] + phi_imp[t]) * p_import[t])
+    #         m.setObjective(quicksum(obj_terms), GRB.MAXIMIZE)
 
-        # --- Objective selection ---
-        if question == "question_1a":
-            # Maximize profit from trading electricity (original)
-            obj_terms = []
-            for t in T:
-                obj_terms.append((da_price[t] - phi_exp[t]) * p_export[t] - (da_price[t] + phi_imp[t]) * p_import[t])
-            m.setObjective(quicksum(obj_terms), GRB.MAXIMIZE)
+    #     elif question == "question_1b":
+    #         # Minimise cost + discomfort
+    #         # Cost (negative profit)
+    #         cost_terms = [-1*((da_price[t] - phi_exp[t]) * p_export[t] - (da_price[t] + phi_imp[t]) * p_import[t]) for t in T]
+    #         # Discomfort: sum of squared deviation from reference profile
+    #         reference_profile = self.consumer.get_reference_profile(num_hours)
+    #         # Try to get discomfort_cost_per_kWh from consumer, else default to 1.0
+    #         discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
+    #         discomfort_terms = [ (p_load[t] - reference_profile[t]) * (p_load[t] - reference_profile[t]) for t in T ]
+    #         m.setObjective(quicksum(cost_terms) + discomfort_cost_per_kWh * quicksum(discomfort_terms), GRB.MINIMIZE)
+    #     else:
+    #         raise ValueError(f"Unknown objective: {question}")
 
-        elif question == "question_1b":
-            # Minimise cost + discomfort
-            # Cost (negative profit)
-            cost_terms = [-1*((da_price[t] - phi_exp[t]) * p_export[t] - (da_price[t] + phi_imp[t]) * p_import[t]) for t in T]
-            # Discomfort: sum of squared deviation from reference profile
-            reference_profile = self.consumer.get_reference_profile(num_hours)
-            # Try to get discomfort_cost_per_kWh from consumer, else default to 1.0
-            discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
-            discomfort_terms = [ (p_load[t] - reference_profile[t]) * (p_load[t] - reference_profile[t]) for t in T ]
-            m.setObjective(quicksum(cost_terms) + discomfort_cost_per_kWh * quicksum(discomfort_terms), GRB.MINIMIZE)
-        else:
-            raise ValueError(f"Unknown objective: {question}")
-
-        # --- Constraints ---
+    #     # --- Constraints ---
         
-        # Total appliance load over all hours must meet required energy demand interval
-        m.addConstr(quicksum(p_load[t] for t in T) >= P_min, name="total_load_min")
-        m.addConstr(quicksum(p_load[t] for t in T) <= P_max, name="total_load_max")
-        # Physical energy balance: for each hour, imported + PV = load + exported (always enforced)
-        for t in T:
-            m.addConstr(p_import[t] + p_pv_actual[t] == p_load[t] + p_export[t], name=f"hourly_balance_{t}")
+    #     # Total appliance load over all hours must meet required energy demand interval
+    #     m.addConstr(quicksum(p_load[t] for t in T) >= P_min, name="total_load_min")
+    #     m.addConstr(quicksum(p_load[t] for t in T) <= P_max, name="total_load_max")
+    #     # Physical energy balance: for each hour, imported + PV = load + exported (always enforced)
+    #     for t in T:
+    #         m.addConstr(p_import[t] + p_pv_actual[t] == p_load[t] + p_export[t], name=f"hourly_balance_{t}")
 
-        # --- Solve the model ---
-        m.optimize()
+    #     # --- Solve the model ---
+    #     m.optimize()
 
-        # --- Output results if optimal solution found ---
-        if m.status == GRB.OPTIMAL:
-            p_import_list = [p_import[t].X for t in T]
-            p_export_list = [p_export[t].X for t in T]
-            p_load_list = [p_load[t].X for t in T]
-            p_pv_actual_list = [p_pv_actual[t].X for t in T]
-            y_list = [y[t].X for t in T]
-            curtailment_list = [P_pv[t] - p_pv_actual_list[t] for t in T]
-            # Calculate cost and discomfort if possible
-            cost = None
-            discomfort = None
-            if hasattr(self, 'question') and self.question == "question_1b":
-                # Recompute cost and discomfort for reporting
-                cost = sum([-1*((da_price[t] - phi_exp[t]) * p_export_list[t] - (da_price[t] + phi_imp[t]) * p_import_list[t]) for t in T])
-                try:
-                    reference_profile = self.consumer.get_reference_profile(num_hours)
-                    discomfort = sum([(p_load_list[t] - reference_profile[t])**2 for t in T])
-                except Exception:
-                    discomfort = None
-            self.results = {
-                "p_import": p_import_list,
-                "p_export": p_export_list,
-                "p_load": p_load_list,
-                "p_pv_actual": p_pv_actual_list,
-                "curtailment": curtailment_list,
-                "y": y_list,
-                "reference_profile": self.consumer.get_reference_profile(num_hours),
-                "P_pv": P_pv,
-                "cost": cost,
-                "discomfort": discomfort
-            }
-            self.total_profit = m.objVal
-        else:
-            self.results = None
-            self.total_profit = None
-        return self.results, getattr(self, 'total_profit', None)
+    #     # --- Output results if optimal solution found ---
+    #     if m.status == GRB.OPTIMAL:
+    #         p_import_list = [p_import[t].X for t in T]
+    #         p_export_list = [p_export[t].X for t in T]
+    #         p_load_list = [p_load[t].X for t in T]
+    #         p_pv_actual_list = [p_pv_actual[t].X for t in T]
+    #         y_list = [y[t].X for t in T]
+    #         curtailment_list = [P_pv[t] - p_pv_actual_list[t] for t in T]
+    #         # Calculate cost and discomfort if possible
+    #         cost = None
+    #         discomfort = None
+    #         if hasattr(self, 'question') and self.question == "question_1b":
+    #             # Recompute cost and discomfort for reporting
+    #             cost = sum([-1*((da_price[t] - phi_exp[t]) * p_export_list[t] - (da_price[t] + phi_imp[t]) * p_import_list[t]) for t in T])
+    #             try:
+    #                 reference_profile = self.consumer.get_reference_profile(num_hours)
+    #                 discomfort = sum([(p_load_list[t] - reference_profile[t])**2 for t in T])
+    #             except Exception:
+    #                 discomfort = None
+    #         self.results = {
+    #             "p_import": p_import_list,
+    #             "p_export": p_export_list,
+    #             "p_load": p_load_list,
+    #             "p_pv_actual": p_pv_actual_list,
+    #             "curtailment": curtailment_list,
+    #             "y": y_list,
+    #             "reference_profile": self.consumer.get_reference_profile(num_hours),
+    #             "P_pv": P_pv,
+    #             "cost": cost,
+    #             "discomfort": discomfort
+    #         }
+    #         self.total_profit = m.objVal
+    #     else:
+    #         self.results = None
+    #         self.total_profit = None
+    #     return self.results, getattr(self, 'total_profit', None)
 
 
 
@@ -353,10 +352,9 @@ class EnergySystemModel:
                     name=f"balance_{t}"
                 )
             )
-            # Exclusivity (Big-M logic)
-            M = max(P_down[t], P_up[t])
-            constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, M * variables[f"y_{t}"]))
-            constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, M * (1 - variables[f"y_{t}"])))
+            # Exclusivity (Big-M logic) - use separate big-M for import/export
+            constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, P_down[t] * variables[f"y_{t}"]))
+            constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, P_up[t] * (1 - variables[f"y_{t}"])))
 
         # -----------------------------
         # Solve

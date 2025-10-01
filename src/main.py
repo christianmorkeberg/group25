@@ -16,7 +16,7 @@ from utils.utils import print_all_scenarios, get_all_scenarios, select_scenarios
 
 
 def main():
-    question = 'question_1b'
+    question = 'question_1a'
     # Load all available scenarios
     scenario_files = get_all_scenarios(question=question)
     print(f"Available scenarios: {list(scenario_files.keys())}")

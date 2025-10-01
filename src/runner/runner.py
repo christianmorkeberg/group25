@@ -71,7 +71,7 @@ class Runner:
             }
         )
         model = EnergySystemModel(consumer, der, grid)
-        results, profit = model.build_and_solve(debug=False,question=self.question)
+        results, profit = model.build_and_solve_standardized(debug=False,question=self.question)
     # Only add scenario and plot in run_all_simulations, not here
         return results, profit
 

@@ -255,3 +255,120 @@ class EnergySystemModel:
 
 
 
+
+    def build_and_solve_standardized(self, debug=False, question="question_1a"):
+        num_hours = len(self.der.get_pv_profile(0)) if self.der.get_pv_profile(0) else 24
+        T = list(range(num_hours))
+
+        # Parameters
+        P_pv     = self.der.get_pv_profile(num_hours)
+        phi_imp  = self.grid.get_import_tariff(num_hours)
+        phi_exp  = self.grid.get_export_tariff(num_hours)
+        da_price = self.grid.get_energy_price(num_hours)
+
+        P_min    = self.consumer.get_minimum_energy_requirement()
+        P_max    = self.consumer.get_maximum_energy_requirement()
+        P_down   = self.grid.get_max_import(num_hours)
+        P_up     = self.grid.get_max_export(num_hours)
+        P_L_max  = self.consumer.get_max_load_per_hour(num_hours)
+
+        if debug:
+            print("=== DATA CHECK ===")
+            print("Hours:", num_hours)
+            print(f"Total requested load between {P_min} and {P_max}")
+            print("Sum PV capacity:", sum(P_pv))
+            print("=================\n")
+
+        # -----------------------------
+        # Standardized formulation
+        # -----------------------------
+        VARIABLES = []
+        objective_coeff = {}
+
+        # Define variable names
+        for t in T:
+            VARIABLES += [f"p_import_{t}", f"p_export_{t}", f"p_load_{t}", f"p_pv_actual_{t}", f"y_{t}"]
+
+        # Create model
+        model = gp.Model("pv_grid_profit_max")
+        model.setParam("OutputFlag", 0)
+
+        # Add variables with bounds
+        variables = {}
+        for t in T:
+            variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down[t], name=f"p_import_{t}")
+            variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up[t],   name=f"p_export_{t}")
+            variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max[t],name=f"p_load_{t}")
+            variables[f"p_pv_actual_{t}"] = model.addVar(lb=0, ub=P_pv[t],   name=f"p_pv_actual_{t}")
+            variables[f"y_{t}"]           = model.addVar(vtype=GRB.BINARY, name=f"y_{t}")
+
+        # Objective
+        if question == "question_1a":
+            # Maximize profit
+            for t in T:
+                objective_coeff[f"p_export_{t}"] = (da_price[t] - phi_exp[t])
+                objective_coeff[f"p_import_{t}"] = -(da_price[t] + phi_imp[t])
+            objective = quicksum(objective_coeff.get(v, 0) * variables[v] for v in VARIABLES)
+            model.setObjective(objective, GRB.MAXIMIZE)
+
+        elif question == "question_1b":
+            # Minimize cost + discomfort
+            reference_profile = self.consumer.get_reference_profile(num_hours)
+            discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
+
+            cost_terms = quicksum(
+                (phi_imp[t] + da_price[t]) * variables[f"p_import_{t}"]
+                - (da_price[t] - phi_exp[t]) * variables[f"p_export_{t}"]
+                for t in T
+            )
+
+            discomfort_terms = quicksum(
+                (variables[f"p_load_{t}"] - reference_profile[t]) *
+                (variables[f"p_load_{t}"] - reference_profile[t])
+                for t in T
+            )
+
+            model.setObjective(cost_terms + discomfort_cost_per_kWh * discomfort_terms, GRB.MINIMIZE)
+
+        # -----------------------------
+        # Constraints
+        # -----------------------------
+        constraints = []
+
+        # Energy requirement bounds
+        constraints.append(
+            model.addLConstr(quicksum(variables[f"p_load_{t}"] for t in T), GRB.GREATER_EQUAL, P_min, name="total_load_min")
+        )
+        constraints.append(
+            model.addLConstr(quicksum(variables[f"p_load_{t}"] for t in T), GRB.LESS_EQUAL, P_max, name="total_load_max")
+        )
+
+        # Hourly balance + import/export exclusivity
+        for t in T:
+            constraints.append(
+                model.addLConstr(
+                    variables[f"p_import_{t}"] + variables[f"p_pv_actual_{t}"],
+                    GRB.EQUAL,
+                    variables[f"p_load_{t}"] + variables[f"p_export_{t}"],
+                    name=f"balance_{t}"
+                )
+            )
+            # Exclusivity (Big-M logic)
+            M = max(P_down[t], P_up[t])
+            constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, M * variables[f"y_{t}"]))
+            constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, M * (1 - variables[f"y_{t}"])))
+
+        # -----------------------------
+        # Solve
+        # -----------------------------
+        model.optimize()
+
+        if model.status == GRB.OPTIMAL:
+            results = {v: variables[v].X for v in VARIABLES}
+            self.results = results
+            self.total_profit = model.objVal
+            return results, model.objVal
+        else:
+            self.results = None
+            self.total_profit = None
+            return None, None

@@ -16,16 +16,16 @@ from utils.utils import print_all_scenarios, get_all_scenarios, select_scenarios
 ## not correct but it discharges.:)
 
 def main():
-    question = 'question_1c'
+    question = 'question_1a' # question_1a, question_1b, or question_1c
     # Load all available scenarios
     scenario_files = get_all_scenarios(question=question)
     print(f"Available scenarios: {list(scenario_files.keys())}")
-    scenario_files = select_scenarios(scenario_files, ["Base case"])
+    scenario_files = select_scenarios(scenario_files, ["Base case","High Load","Low Load"]) # See scenario names in _scenario_names.json
 
     input_path = Path(f'data/{question}/')
     runner = Runner(show_plots=False, save_plots=True,question=question)
     scenario_results = runner.run_all_simulations(question, input_path, scenario_files)
-    print_all_scenarios(scenario_results,mode="small") # small or large
+    print_all_scenarios(scenario_results,mode="small",question=question) # small or large
 
 if __name__ == "__main__":
     main()

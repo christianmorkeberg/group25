@@ -51,7 +51,7 @@ def print_results_small(results, profit, scenario_name=None):
     print("============================\n")
 
 # Print results and profit for all scenarios
-def print_all_scenarios(scenario_results, mode="large"):
+def print_all_scenarios(scenario_results, mode="large",question=None):
     print("\n=== Scenario Results ===")
     for name, result in scenario_results.items():
         print(f"\nScenario: {name}")
@@ -59,6 +59,16 @@ def print_all_scenarios(scenario_results, mode="large"):
             print_results_small(result['results'], result['profit'], name)
         else:
             print_results(result['results'], result['profit'], name)
+        # Print duals if available
+        duals = result['results'].get('duals', None)
+        if duals:
+            # Export duals to a .txt file per scenario
+            filename = f"txt/{question}/duals_{name.replace(' ', '_')}.txt"
+            with open(filename, 'w') as f:
+                f.write(f"Dual values (shadow prices) for scenario: {name}\n")
+                for cname, dual in duals.items():
+                    f.write(f"{cname}: {dual:.6f}\n")
+            print(f"  Dual values exported to {filename}")
 "placeholder for various utils functions"
 
 import json

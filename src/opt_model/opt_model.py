@@ -229,7 +229,7 @@ class EnergySystemModel:
 
         # Define variable names
         for t in T:
-            VARIABLES += [f"p_import_{t}", f"p_export_{t}", f"p_load_{t}", f"p_pv_actual_{t}", f"y_{t}",f"z_{t}",
+            VARIABLES += [f"p_import_{t}", f"p_export_{t}", f"p_load_{t}", f"p_pv_actual_{t}", f"y_{t}", f"z_{t}",
                           f"p_bat_charge_{t}", f"p_bat_discharge_{t}", f"soc_{t}"]
 
         # Create model
@@ -241,12 +241,12 @@ class EnergySystemModel:
         for t in T:
             variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down[t], name=f"p_import_{t}")
             variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up[t],   name=f"p_export_{t}")
-            variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max[t],name=f"p_load_{t}")
+            variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max[t], name=f"p_load_{t}")
             variables[f"p_pv_actual_{t}"] = model.addVar(lb=0, ub=P_pv[t],   name=f"p_pv_actual_{t}")
-            variables[f"y_{t}"]           = model.addVar(vtype=GRB.BINARY, name=f"y_{t}")
-            variables[f"z_{t}"]           = model.addVar(vtype=GRB.BINARY, name=f"z_{t}")
+            # Exclusivity variables as continuous in [0,1]
+            variables[f"y_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"y_{t}")
+            variables[f"z_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"z_{t}")
             # Battery variables
-
             variables[f"p_bat_charge_{t}"]    = model.addVar(lb=0, ub=P_bat_ch_max, name=f"p_bat_charge_{t}")
             variables[f"p_bat_discharge_{t}"] = model.addVar(lb=0, ub=P_bat_dis_max, name=f"p_bat_discharge_{t}")
             variables[f"soc_{t}"]             = model.addVar(lb=0, ub=P_bat_cap,      name=f"soc_{t}")
@@ -254,16 +254,19 @@ class EnergySystemModel:
 
 
         # Objective
+        epsilon = 1e-3  # Small penalty for simultaneous charge/discharge or import/export
         if question == "question_1a":
-            # Maximize profit
+            # Maximize profit, penalize simultaneous charge/discharge and import/export
             for t in T:
                 objective_coeff[f"p_export_{t}"] = (da_price[t] - phi_exp[t])
                 objective_coeff[f"p_import_{t}"] = -(da_price[t] + phi_imp[t])
             objective = quicksum(objective_coeff.get(v, 0) * variables[v] for v in VARIABLES)
-            model.setObjective(objective, GRB.MAXIMIZE)
+            penalty_battery = epsilon * quicksum(variables[f"p_bat_charge_{t}"] + variables[f"p_bat_discharge_{t}"] for t in T)
+            penalty_grid = epsilon * quicksum(variables[f"p_import_{t}"] + variables[f"p_export_{t}"] for t in T)
+            model.setObjective(objective - penalty_battery - penalty_grid, GRB.MAXIMIZE)
 
         elif question == "question_1b" or question == "question_1c":
-            # Minimize cost + discomfort
+            # Minimize cost + discomfort, penalize simultaneous charge/discharge and import/export
             reference_profile = self.consumer.get_reference_profile(num_hours)
             discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
 
@@ -279,7 +282,9 @@ class EnergySystemModel:
                 for t in T
             )
 
-            model.setObjective(cost_terms + discomfort_cost_per_kWh * discomfort_terms, GRB.MINIMIZE)
+            penalty_battery = epsilon * quicksum(variables[f"p_bat_charge_{t}"] + variables[f"p_bat_discharge_{t}"] for t in T)
+            penalty_grid = epsilon * quicksum(variables[f"p_import_{t}"] + variables[f"p_export_{t}"] for t in T)
+            model.setObjective(cost_terms + discomfort_cost_per_kWh * discomfort_terms + penalty_battery + penalty_grid, GRB.MINIMIZE)
 
         # -----------------------------
         # Constraints
@@ -313,13 +318,13 @@ class EnergySystemModel:
             )
 
 
-            # Exclusivity (Big-M logic) - use separate big-M for import/export
-            constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, P_down[t] * variables[f"y_{t}"]))
-            constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, P_up[t] * (1 - variables[f"y_{t}"])))
+            # Exclusivity (Big-M logic) - use separate big-M for import/export with continuous y_t
+            constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, P_down[t] * variables[f"y_{t}"],name=f"import_exclusivity_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, P_up[t] * (1 - variables[f"y_{t}"]),name=f"export_exclusivity_{t}"))
 
-            # Battery exclusivity (Big-M logic) - use separate big-M for charge/discharge
-            constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max * variables[f"z_{t}"]))
-            constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max * (1 - variables[f"z_{t}"])))
+            # Battery exclusivity (Big-M logic) - use separate big-M for charge/discharge with continuous z_t
+            constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max * variables[f"z_{t}"],name=f"charge_exclusivity_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max * (1 - variables[f"z_{t}"]),name=f"discharge_exclusivity_{t}"))
 
             # Constrain SOC for all houes except the last one where SOC bust be over final_soc (see above)
             # Here we include efficiency!

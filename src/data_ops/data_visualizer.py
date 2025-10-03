@@ -98,8 +98,8 @@ class DataVisualizer:
                     markersize=5,
                     linewidth=2
                 )
-            # Plot reference_profile if available and not all None
-            if ref_profile_to_plot is not None:
+            # Plot reference_profile if available and not all None, and if key is not 'soc'
+            if ref_profile_to_plot is not None and k != 'soc':
                 plt.plot(ref_profile_to_plot, label='reference_profile', linestyle='--', color='black', linewidth=2)
             plt.title(f"Comparison: {k}")
             plt.xlabel("Hour")

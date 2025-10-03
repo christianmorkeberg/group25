@@ -327,9 +327,14 @@ class EnergySystemModel:
                 # Initial SOC constraint
                 initial_soc = self.consumer.get_initial_soc()
                 constraints.append(
-                    model.addLConstr(variables[f"soc_{t}"], GRB.GREATER_EQUAL, initial_soc * P_bat_cap, name="soc_init")
+                    model.addLConstr(variables[f"soc_{t}"], GRB.EQUAL, initial_soc * P_bat_cap, name="soc_init")
                 )
-            elif t != T[-1]:
+            if t == T[-1]:
+                final_soc = self.consumer.get_final_soc()
+                constraints.append(
+                    model.addLConstr(variables[f"soc_{t}"], GRB.GREATER_EQUAL, final_soc * P_bat_cap, name="soc_end_min")
+                )
+            if t != T[-1]:
                 constraints.append(
                     model.addLConstr(
                         variables[f"soc_{t+1}"],
@@ -340,20 +345,7 @@ class EnergySystemModel:
                         name=f"soc_update_{t}"
                     )
                 )
-            else:
-                final_soc = self.consumer.get_final_soc()
-                constraints.append(
-                    model.addLConstr(variables[f"soc_{t}"], GRB.GREATER_EQUAL, final_soc * P_bat_cap, name="soc_end_min")
-                )
-
-
-        # initial_soc = self.consumer.get_initial_soc() * P_bat_cap
-        # if question in ["question_1c"]:
-        #     weight = 1e-3  # small so it doesn't block discharging
-        #     model.setObjective(
-        #         model.getObjective() + weight * (variables["soc_0"] - initial_soc) * (variables["soc_0"] - initial_soc)
-        #     )
-
+                
 
         # -----------------------------
         # Solve
@@ -361,7 +353,18 @@ class EnergySystemModel:
         model.optimize()
 
         if model.status == GRB.OPTIMAL:
+            # Primal values
             results = {v: variables[v].X for v in VARIABLES}
+            # Dual values
+            duals = {}
+            for c in model.getConstrs():
+                # Use constraint name if available, else Gurobi's default name
+                cname = c.ConstrName if c.ConstrName else str(c)
+                duals[cname] = c.Pi
+            # Append reference to results
+            results['reference_profile'] = self.consumer.get_reference_profile(num_hours)
+            # Store duals in results for access, but keep return signature unchanged
+            results['duals'] = duals
             self.results = results
             self.total_profit = model.objVal
             return results, model.objVal

@@ -115,7 +115,7 @@ class Runner:
             print(f"Scenario: {scenario_name}, Profit: {profit}")
         # Plot comparison
         if self.show_plots or self.save_plots:
-            visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv'],
+            visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv',"p_bat_charge","p_bat_discharge","soc"],
                                        show_plots = self.show_plots,
                                        save_plots=self.save_plots)
         return scenario_results

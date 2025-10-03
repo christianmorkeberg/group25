@@ -25,7 +25,7 @@ def main():
     input_path = Path(f'data/{question}/')
     runner = Runner(show_plots=False, save_plots=True,question=question)
     scenario_results = runner.run_all_simulations(question, input_path, scenario_files)
-    print_all_scenarios(scenario_results,mode="small")
+    print_all_scenarios(scenario_results,mode="small") # small or large
 
 if __name__ == "__main__":
     main()

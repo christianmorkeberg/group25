@@ -13,14 +13,14 @@ from pathlib import Path
 from runner.runner import Runner
 from utils.utils import print_all_scenarios, get_all_scenarios, select_scenarios
 
-
+## not correct but it discharges.:)
 
 def main():
-    question = 'question_1a'
+    question = 'question_1c'
     # Load all available scenarios
     scenario_files = get_all_scenarios(question=question)
     print(f"Available scenarios: {list(scenario_files.keys())}")
-    scenario_files = select_scenarios(scenario_files, "All")
+    scenario_files = select_scenarios(scenario_files, ["Base case"])
 
     input_path = Path(f'data/{question}/')
     runner = Runner(show_plots=False, save_plots=True,question=question)

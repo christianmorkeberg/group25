@@ -3,6 +3,31 @@ from typing import Dict, List
 from data_ops.data_visualizer import DataVisualizer
 
 class Runner:
+    @staticmethod
+    def _results_flat_to_lists(results: dict) -> dict:
+        """
+        Convert flat results dict (e.g., 'p_import_0', 'p_import_1', ...) to dict of lists (e.g., 'p_import': [...]).
+        """
+        from collections import defaultdict
+        import re
+        grouped = defaultdict(list)
+        pattern = re.compile(r"(.+)_([0-9]+)$")
+        for k, v in results.items():
+            m = pattern.match(k)
+            if m:
+                base, idx = m.group(1), int(m.group(2))
+                grouped[base].append((idx, v))
+            else:
+                grouped[k] = v
+        # Sort by index and convert to lists
+        out = {}
+        for base, values in grouped.items():
+            if isinstance(values, list) and values and isinstance(values[0], tuple):
+                values.sort(key=lambda x: x[0])
+                out[base] = [v for _, v in values]
+            else:
+                out[base] = values
+        return out
     """
     Handles configuration setting, data loading and preparation, model(s) execution, results saving and ploting
     """
@@ -84,8 +109,9 @@ class Runner:
         scenario_results = {}
         for scenario_name, scaling_path in scenario_files.items():
             results, profit = self.run_single_simulation(question, input_path, scaling_path)
-            scenario_results[scenario_name] = {'results': results, 'profit': profit}
-            visualizer.add_scenario(scenario_name, results, label=scenario_name)
+            results_listed = self._results_flat_to_lists(results)
+            scenario_results[scenario_name] = {'results': results_listed, 'profit': profit}
+            visualizer.add_scenario(scenario_name, results_listed, label=scenario_name)
             print(f"Scenario: {scenario_name}, Profit: {profit}")
         # Plot comparison
         if self.show_plots or self.save_plots:

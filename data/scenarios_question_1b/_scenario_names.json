@@ -1,4 +1,5 @@
 {
+    "Base case": "data/scenarios_question_1b/base_case.json",
     "Low Discomfort": "data/scenarios_question_1b/low_discomfort.json",
     "Medium Discomfort": "data/scenarios_question_1b/medium_discomfort.json",
     "High Discomfort": "data/scenarios_question_1b/high_discomfort.json"

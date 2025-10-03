@@ -6,5 +6,7 @@
   "max_import_kW": 1.0,
   "max_export_kW": 1.0,
   "load_scale": 1.0, 
-  "discomfort_cost_per_kWh": 0.1
+  "discomfort_cost_per_kWh": 0.1,
+  "inital_soc":1,
+  "soc_min":0.0
 }

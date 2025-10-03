@@ -7,7 +7,7 @@ def to_list(v, num_hours,scale=1.0):
     if isinstance(v, list):
         return [vi * scale for vi in v]
     else:
-        if v:
+        if v or v==0:
             return [v * scale for _ in range(num_hours)]
         else:
             return [None] * num_hours
@@ -56,6 +56,71 @@ class Consumer:
         # This models the physical limit of appliances at each hour
         v = self.appliance_params["load"][0].get("max_load_kWh_per_hour")
         return to_list(v, num_hours)
+    
+    def get_storage_capacity(self):
+        v = self.appliance_params.get("storage",[{}])
+        if v:
+            v = v[0].get("storage_capacity_kWh",0)
+        else:
+            v = 0
+        return self.scale.get("storage_capacity_scale",1)*v
+
+    def get_max_charging_power(self):
+        v = self.appliance_params.get("storage",[{}])
+        if v: 
+            v = v[0].get("max_charging_power_ratio",0)
+        else:
+            v = 0
+        return self.scale.get("max_charge_power_scale",1)*v
+    
+    def get_max_discharging_power(self):
+        v = self.appliance_params.get("storage",[{}])
+        if v: 
+            v=v[0].get("max_discharging_power_ratio",0)
+        else:
+            v = 0
+        return self.scale.get("max_discharge_power_scale",1)*v
+    
+    def get_charging_efficiency(self):
+        v = self.appliance_params.get("storage")
+        
+        if v: 
+            v = v[0].get("charging_efficiency",1)
+        else:
+            v = 1
+        return v
+    
+    def get_discharging_efficiency(self):
+        v = self.appliance_params.get("storage")
+        if v:
+            v = v[0].get("discharging_efficiency", 1)
+        else:
+            v = 1
+        return v
+
+    def get_initial_soc(self):
+        v = self.usage_preference[0].get("storage_preferences")
+        if v:
+            v = v[0].get("initial_soc_ratio", 0)
+        else:
+            v = 0
+        return self.scale.get("initial_soc_ratio", 1) * v
+
+    def get_minimum_soc(self):
+        v = self.usage_preference[0].get("storage_preferences")
+        if v:
+            v = v[0].get("minimum_soc_ratio", 0)
+        else:
+            v = 0
+        return self.scale.get("soc_min", 1) * v
+
+    def get_final_soc(self):
+        v = self.usage_preference[0].get("storage_preferences")
+        if v:
+            v = v[0].get("final_soc_ratio", 0)
+        else:
+            v = 0
+        return self.scale.get("final_soc_ratio", 1) * v
 
 
 # DER class: holds PV and other distributed resources
@@ -99,7 +164,7 @@ class Grid:
     def get_export_tariff(self, num_hours):
         # Revenue for exporting electricity to the grid (DKK/kWh)
         v = self.bus_params[0].get("export_tariff_DKK/kWh")
-        return to_list(v, num_hours,self.scale.get("export_tariff_scale",1.0))
+        return to_list(v, num_hours,self.scale.get("export_tariff_scale",.10))
 
     def get_energy_price(self, num_hours):
         # Market price for electricity (DKK/kWh)
@@ -115,6 +180,8 @@ class Grid:
         # Maximum power that can be exported to the grid each hour (kW)
         v = self.bus_params[0].get("max_export_kW")
         return to_list(v, num_hours,self.scale.get("max_export_kW",1.0))
+    
+
 
 # Main energy system optimization model
 class EnergySystemModel:
@@ -125,135 +192,6 @@ class EnergySystemModel:
         self.grid = grid
         self.model = None
         self.results = None
-
-    # def build_and_solve(self, debug=False, question="question_1a"):
-    #     # --- Extract all physical parameters from the system ---
-    #     # PV production profile: renewable energy available each hour
-    #     # Import tariff: cost to buy electricity from the grid
-    #     # Export tariff: revenue for selling electricity to the grid
-    #     # Day-ahead market price: market value of electricity
-    #     # Total energy demand required by appliances (physical constraint)
-    #     # Maximum allowed import/export/load per hour (physical grid/appliance limits)
-    #     num_hours = len(self.der.get_pv_profile(0)) if self.der.get_pv_profile(0) else 24
-    #     T = list(range(num_hours))
-
-    #     P_pv = self.der.get_pv_profile(num_hours)
-    #     phi_imp = self.grid.get_import_tariff(num_hours) # Tariff to import from grid
-    #     phi_exp = self.grid.get_export_tariff(num_hours) # Tariff to export to grid
-    #     da_price = self.grid.get_energy_price(num_hours) # Day-ahead market price
-
-    #     P_min = self.consumer.get_minimum_energy_requirement()
-    #     P_max = self.consumer.get_maximum_energy_requirement()
-    #     P_down_max = self.grid.get_max_import(num_hours)
-    #     P_up_max   = self.grid.get_max_export(num_hours)
-    #     P_L_max    = self.consumer.get_max_load_per_hour(num_hours)
-
-    #     if debug:
-    #         print("=== DATA CHECK ===")
-    #         print("Hours:", num_hours)
-    #         print(f"Total requested load between {P_min} and {P_max}",)
-    #         print("Sum PV capacity:", sum(P_pv))
-    #         print("=================\n")
-
-    #     # --- Build optimization model ---
-    #     # Decision variables for each hour:
-    #     # p_import: power imported from grid (kWh)
-    #     # p_export: power exported to grid (kWh)
-    #     # p_load: power consumed by appliances (kWh)
-    #     # p_pv_actual: actual PV power used (kWh)
-    #     # y: binary, 1=import active, 0=export active (models grid connection mode)
-    #     m = gp.Model("pv_grid_profit_max")
-    #     m.setParam("OutputFlag", 0) # 1=show solver output, 0=quiet
-
-    #     p_import = {}
-    #     p_export = {}
-    #     p_load = {}
-    #     p_pv_actual = {}
-    #     y = {}
-    #     for t in T:
-    #         p_import[t] = m.addVar(lb=0.0, ub=P_down_max[t], name=f"p_import_{t}") # kWh imported from grid
-    #         p_export[t] = m.addVar(lb=0.0, ub=P_up_max[t], name=f"p_export_{t}") # kWh exported to grid
-    #         p_load[t] = m.addVar(lb=0.0, ub=P_L_max[t], name=f"p_load_{t}") # kWh consumed by appliances
-    #         p_pv_actual[t] = m.addVar(lb=0.0, ub=P_pv[t], name=f"p_pv_actual_{t}") # kWh of PV used
-    #         y[t] = m.addVar(vtype=GRB.BINARY, name=f"y_{t}") # Binary variable for import/export mode
-    #         # Use separate big-M values for import and export
-    #         m.addConstr(p_import[t] <= P_down_max[t] * y[t])
-    #         m.addConstr(p_export[t] <= P_up_max[t] * (1 - y[t]))
-
-    #     m.update()
-
-    #     # --- Objective selection ---
-    #     if question == "question_1a":
-    #         # Maximize profit from trading electricity (original)
-    #         obj_terms = []
-    #         for t in T:
-    #             obj_terms.append((da_price[t] - phi_exp[t]) * p_export[t] - (da_price[t] + phi_imp[t]) * p_import[t])
-    #         m.setObjective(quicksum(obj_terms), GRB.MAXIMIZE)
-
-    #     elif question == "question_1b":
-    #         # Minimise cost + discomfort
-    #         # Cost (negative profit)
-    #         cost_terms = [-1*((da_price[t] - phi_exp[t]) * p_export[t] - (da_price[t] + phi_imp[t]) * p_import[t]) for t in T]
-    #         # Discomfort: sum of squared deviation from reference profile
-    #         reference_profile = self.consumer.get_reference_profile(num_hours)
-    #         # Try to get discomfort_cost_per_kWh from consumer, else default to 1.0
-    #         discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
-    #         discomfort_terms = [ (p_load[t] - reference_profile[t]) * (p_load[t] - reference_profile[t]) for t in T ]
-    #         m.setObjective(quicksum(cost_terms) + discomfort_cost_per_kWh * quicksum(discomfort_terms), GRB.MINIMIZE)
-    #     else:
-    #         raise ValueError(f"Unknown objective: {question}")
-
-    #     # --- Constraints ---
-        
-    #     # Total appliance load over all hours must meet required energy demand interval
-    #     m.addConstr(quicksum(p_load[t] for t in T) >= P_min, name="total_load_min")
-    #     m.addConstr(quicksum(p_load[t] for t in T) <= P_max, name="total_load_max")
-    #     # Physical energy balance: for each hour, imported + PV = load + exported (always enforced)
-    #     for t in T:
-    #         m.addConstr(p_import[t] + p_pv_actual[t] == p_load[t] + p_export[t], name=f"hourly_balance_{t}")
-
-    #     # --- Solve the model ---
-    #     m.optimize()
-
-    #     # --- Output results if optimal solution found ---
-    #     if m.status == GRB.OPTIMAL:
-    #         p_import_list = [p_import[t].X for t in T]
-    #         p_export_list = [p_export[t].X for t in T]
-    #         p_load_list = [p_load[t].X for t in T]
-    #         p_pv_actual_list = [p_pv_actual[t].X for t in T]
-    #         y_list = [y[t].X for t in T]
-    #         curtailment_list = [P_pv[t] - p_pv_actual_list[t] for t in T]
-    #         # Calculate cost and discomfort if possible
-    #         cost = None
-    #         discomfort = None
-    #         if hasattr(self, 'question') and self.question == "question_1b":
-    #             # Recompute cost and discomfort for reporting
-    #             cost = sum([-1*((da_price[t] - phi_exp[t]) * p_export_list[t] - (da_price[t] + phi_imp[t]) * p_import_list[t]) for t in T])
-    #             try:
-    #                 reference_profile = self.consumer.get_reference_profile(num_hours)
-    #                 discomfort = sum([(p_load_list[t] - reference_profile[t])**2 for t in T])
-    #             except Exception:
-    #                 discomfort = None
-    #         self.results = {
-    #             "p_import": p_import_list,
-    #             "p_export": p_export_list,
-    #             "p_load": p_load_list,
-    #             "p_pv_actual": p_pv_actual_list,
-    #             "curtailment": curtailment_list,
-    #             "y": y_list,
-    #             "reference_profile": self.consumer.get_reference_profile(num_hours),
-    #             "P_pv": P_pv,
-    #             "cost": cost,
-    #             "discomfort": discomfort
-    #         }
-    #         self.total_profit = m.objVal
-    #     else:
-    #         self.results = None
-    #         self.total_profit = None
-    #     return self.results, getattr(self, 'total_profit', None)
-
-
-
 
     def build_and_solve_standardized(self, debug=False, question="question_1a"):
         num_hours = len(self.der.get_pv_profile(0)) if self.der.get_pv_profile(0) else 24
@@ -270,6 +208,11 @@ class EnergySystemModel:
         P_down   = self.grid.get_max_import(num_hours)
         P_up     = self.grid.get_max_export(num_hours)
         P_L_max  = self.consumer.get_max_load_per_hour(num_hours)
+        P_bat_cap = self.consumer.get_storage_capacity()
+        P_bat_ch_max = self.consumer.get_max_charging_power()
+        P_bat_dis_max = self.consumer.get_max_discharging_power()
+        P_bat_ch_eff = self.consumer.get_charging_efficiency()
+        P_bat_dis_eff = self.consumer.get_discharging_efficiency()
 
         if debug:
             print("=== DATA CHECK ===")
@@ -286,7 +229,8 @@ class EnergySystemModel:
 
         # Define variable names
         for t in T:
-            VARIABLES += [f"p_import_{t}", f"p_export_{t}", f"p_load_{t}", f"p_pv_actual_{t}", f"y_{t}"]
+            VARIABLES += [f"p_import_{t}", f"p_export_{t}", f"p_load_{t}", f"p_pv_actual_{t}", f"y_{t}",f"z_{t}",
+                          f"p_bat_charge_{t}", f"p_bat_discharge_{t}", f"soc_{t}"]
 
         # Create model
         model = gp.Model("pv_grid_profit_max")
@@ -300,6 +244,14 @@ class EnergySystemModel:
             variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max[t],name=f"p_load_{t}")
             variables[f"p_pv_actual_{t}"] = model.addVar(lb=0, ub=P_pv[t],   name=f"p_pv_actual_{t}")
             variables[f"y_{t}"]           = model.addVar(vtype=GRB.BINARY, name=f"y_{t}")
+            variables[f"z_{t}"]           = model.addVar(vtype=GRB.BINARY, name=f"z_{t}")
+            # Battery variables
+
+            variables[f"p_bat_charge_{t}"]    = model.addVar(lb=0, ub=P_bat_ch_max, name=f"p_bat_charge_{t}")
+            variables[f"p_bat_discharge_{t}"] = model.addVar(lb=0, ub=P_bat_dis_max, name=f"p_bat_discharge_{t}")
+            variables[f"soc_{t}"]             = model.addVar(lb=0, ub=P_bat_cap,      name=f"soc_{t}")
+
+
 
         # Objective
         if question == "question_1a":
@@ -310,7 +262,7 @@ class EnergySystemModel:
             objective = quicksum(objective_coeff.get(v, 0) * variables[v] for v in VARIABLES)
             model.setObjective(objective, GRB.MAXIMIZE)
 
-        elif question == "question_1b":
+        elif question == "question_1b" or question == "question_1c":
             # Minimize cost + discomfort
             reference_profile = self.consumer.get_reference_profile(num_hours)
             discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
@@ -342,19 +294,66 @@ class EnergySystemModel:
             model.addLConstr(quicksum(variables[f"p_load_{t}"] for t in T), GRB.LESS_EQUAL, P_max, name="total_load_max")
         )
 
+
         # Hourly balance + import/export exclusivity
         for t in T:
+
+            # Hourly balance. 
             constraints.append(
                 model.addLConstr(
-                    variables[f"p_import_{t}"] + variables[f"p_pv_actual_{t}"],
+                    variables[f"p_import_{t}"]
+                    + variables[f"p_pv_actual_{t}"]
+                    + variables[f"p_bat_discharge_{t}"],          # battery delivers this much to the bus
                     GRB.EQUAL,
-                    variables[f"p_load_{t}"] + variables[f"p_export_{t}"],
+                    variables[f"p_load_{t}"]
+                    + variables[f"p_export_{t}"]
+                    + variables[f"p_bat_charge_{t}"],              # this amount goes into battery (before storage losses)
                     name=f"balance_{t}"
                 )
             )
+
+
             # Exclusivity (Big-M logic) - use separate big-M for import/export
             constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, P_down[t] * variables[f"y_{t}"]))
             constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, P_up[t] * (1 - variables[f"y_{t}"])))
+
+            # Battery exclusivity (Big-M logic) - use separate big-M for charge/discharge
+            constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max * variables[f"z_{t}"]))
+            constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max * (1 - variables[f"z_{t}"])))
+
+            # Constrain SOC for all houes except the last one where SOC bust be over final_soc (see above)
+            # Here we include efficiency!
+            if t == T[0]:
+                # Initial SOC constraint
+                initial_soc = self.consumer.get_initial_soc()
+                constraints.append(
+                    model.addLConstr(variables[f"soc_{t}"], GRB.GREATER_EQUAL, initial_soc * P_bat_cap, name="soc_init")
+                )
+            elif t != T[-1]:
+                constraints.append(
+                    model.addLConstr(
+                        variables[f"soc_{t+1}"],
+                        GRB.EQUAL,
+                        variables[f"soc_{t}"]
+                        + P_bat_ch_eff * variables[f"p_bat_charge_{t}"]     # energy stored = charge power * eff_ch
+                        - (1.0 / P_bat_dis_eff) * variables[f"p_bat_discharge_{t}"],  # soc reduces by delivered / eff_dis
+                        name=f"soc_update_{t}"
+                    )
+                )
+            else:
+                final_soc = self.consumer.get_final_soc()
+                constraints.append(
+                    model.addLConstr(variables[f"soc_{t}"], GRB.GREATER_EQUAL, final_soc * P_bat_cap, name="soc_end_min")
+                )
+
+
+        # initial_soc = self.consumer.get_initial_soc() * P_bat_cap
+        # if question in ["question_1c"]:
+        #     weight = 1e-3  # small so it doesn't block discharging
+        #     model.setObjective(
+        #         model.getObjective() + weight * (variables["soc_0"] - initial_soc) * (variables["soc_0"] - initial_soc)
+        #     )
+
 
         # -----------------------------
         # Solve

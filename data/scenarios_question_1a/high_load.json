@@ -5,5 +5,5 @@
   "price_scale": 1.0,
   "max_import_kW": 1.0,
   "max_export_kW": 1.0,
-  "load_scale": 4
+  "load_scale": 2
 }

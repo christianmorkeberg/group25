@@ -14,6 +14,8 @@ def get_unique_filename(base_name):
 
 # Print results and profit for a single scenario
 def print_results(results, profit, scenario_name=None):
+    if "actual_profit" in results:
+        print(f"Actual Profit: {results['actual_profit']:.2f} DKK")
     if results is None:
         print(f"No results available for scenario '{scenario_name}'.")
         return
@@ -23,15 +25,27 @@ def print_results(results, profit, scenario_name=None):
     title += " ==="
     print(f"\n{title}")
     for key, values in results.items():
-        print(f"{key}: {values}")
+        if key not in ["duals", "reference_profile", "true_cost", "discomfort"]:
+            print(f"{key}: {values}")
+    # Print true cost/discomfort if present
+    if "true_cost" in results:
+        print(f"True Cost (import/export only): {results['true_cost']:.2f} DKK")
+    if "discomfort" in results:
+        print(f"Discomfort term: {results['discomfort']:.2f}")
     if profit is not None:
-        print(f"Total Profit: {profit:.2f} DKK")
+        print(f"Objective Value: {profit:.2f}")
+        if "true_cost" in results or "discomfort" in results:
+            print("(Objective value is a weighted sum of cost and discomfort, not pure profit)")
+        else:
+            print("(Objective value is total profit)")
     else:
         print("Model did not find an optimal solution.")
     print("============================\n")
 
 # Print results and profit for a single scenario (small version)
 def print_results_small(results, profit, scenario_name=None):
+    if "actual_profit" in results:
+        print(f"Actual Profit: {results['actual_profit']:.2f} DKK")
     if results is None:
         print(f"No results available for scenario '{scenario_name}'.")
         return
@@ -45,7 +59,11 @@ def print_results_small(results, profit, scenario_name=None):
         if key in results:
             print(f"{key} (sum): {sum(results[key]):.2f}")
     if profit is not None:
-        print(f"Total Profit: {profit:.2f} DKK")
+        print(f"Objective Value: {profit:.2f}")
+        if "true_cost" in results or "discomfort" in results:
+            print("(Objective value is a weighted sum of cost and discomfort, not pure profit)")
+        else:
+            print("(Objective value is total profit)")
     else:
         print("Model did not find an optimal solution.")
     print("============================\n")

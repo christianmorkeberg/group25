@@ -1,3 +1,9 @@
 {
-    "Base case": "data/scenarios_question_1c/base_case.json"
+    "Base case": "data/scenarios_question_1c/base_case.json",
+    "Low Discomfort": "data/scenarios_question_1c/low_discomfort.json",
+    "Medium Discomfort": "data/scenarios_question_1c/medium_discomfort.json",
+    "High Discomfort": "data/scenarios_question_1c/high_discomfort.json",
+    "Very High Discomfort": "data/scenarios_question_1c/very_high_discomfort.json",
+    "Low Load":"data/scenarios_question_1c/low_load.json",
+    "High Load":"data/scenarios_question_1c/high_load.json"
 }

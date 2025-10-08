@@ -32,10 +32,11 @@ class Runner:
     Handles configuration setting, data loading and preparation, model(s) execution, results saving and ploting
     """
 
-    def __init__(self,show_plots=False,save_plots=False,question=None) -> None:
+    def __init__(self,show_plots=False,save_plots=False,question=None,num_hours=24) -> None:
         self.show_plots = show_plots
         self.save_plots = save_plots
         self.question = question
+        self.num_hours = num_hours # default, will be updated in run_single_simulation
         """Initialize the Runner."""
 
     def _load_config(self) -> None:
@@ -83,6 +84,7 @@ class Runner:
 
         der = DER(
             der_production,
+            appliance_params,
             scale={"pv_scale": scaling.get("pv_scale", 1.0)}
         )
         grid = Grid(
@@ -96,7 +98,7 @@ class Runner:
             }
         )
         model = EnergySystemModel(consumer, der, grid)
-        results, profit = model.build_and_solve_standardized(debug=False,question=self.question)
+        results, profit = model.build_and_solve_standardized(debug=False,question=self.question,num_hours=self.num_hours)
     # Only add scenario and plot in run_all_simulations, not here
         return results, profit
 
@@ -115,7 +117,7 @@ class Runner:
             print(f"Scenario: {scenario_name}, Profit: {profit}")
         # Plot comparison
         if self.show_plots or self.save_plots:
-            visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv',"p_bat_charge","p_bat_discharge","soc"],
+            visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv',"p_bat_charge","p_bat_discharge","soc","p_curtailment"],
                                        show_plots = self.show_plots,
                                        save_plots=self.save_plots)
         return scenario_results

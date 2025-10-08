@@ -28,7 +28,7 @@ class Consumer:
         self.scale = scale
 
     def get_minimum_energy_requirement(self):
-        # Returns total required energy for the day (kWh)
+        # Returns total required energy for the day as equivalent full hours
         # This is the physical constraint for total consumption by appliances
         min = self.usage_preference[0]["load_preferences"][0]["min_total_energy_per_day_hour_equivalent"]
         if not min:
@@ -37,7 +37,7 @@ class Consumer:
             return min*self.scale.get("load_scale",1.0)
     
     def get_maximum_energy_requirement(self):
-        # Returns total required energy for the day (kWh)
+        # Returns total required energy for the day as equivalent full hours
         # This is the physical constraint for total consumption by appliances
         max = self.usage_preference[0]["load_preferences"][0]["max_total_energy_per_day_hour_equivalent"]
         if not max:
@@ -51,11 +51,11 @@ class Consumer:
         return to_list(v, num_hours, self.scale.get("reference_profile_scale", 1.0))
         
 
-    def get_max_load_per_hour(self, num_hours):
+    def get_max_load_per_hour(self):
         # Returns max load per hour as a list (kWh)
         # This models the physical limit of appliances at each hour
         v = self.appliance_params["load"][0].get("max_load_kWh_per_hour")
-        return to_list(v, num_hours)
+        return v
     
     def get_storage_capacity(self):
         v = self.appliance_params.get("storage",[{}])
@@ -130,16 +130,21 @@ class DER:
     - PV: provides renewable generation profile
     - Battery: (future) enables energy storage and shifting
     """
-    def __init__(self, der_production, battery=None,scale ={}):
+    def __init__(self, der_production, appliance_params,battery=None,scale ={}):
         self.der_production = der_production
         self.battery = battery  # For future battery integration
         self.scale = scale
+        self.appliance_params = appliance_params
 
     def get_pv_profile(self, num_hours):
         # Returns PV hourly profile (kWh produced each hour)
         # This is the physical renewable generation available to the consumer
         v = self.der_production[0].get("hourly_profile_ratio")
         return to_list(v, num_hours,self.scale.get("pv_scale",1.0))
+    
+    def get_max_pv_capacity(self):
+        v = self.appliance_params["DER"][0].get("max_power_kW")
+        return v
 
 # Grid class: holds tariffs and grid limits
 class Grid:
@@ -193,26 +198,26 @@ class EnergySystemModel:
         self.model = None
         self.results = None
 
-    def build_and_solve_standardized(self, debug=False, question="question_1a"):
-        num_hours = len(self.der.get_pv_profile(0)) if self.der.get_pv_profile(0) else 24
+    def build_and_solve_standardized(self, debug=False, question="question_1a",num_hours=24):
         T = list(range(num_hours))
 
         # Parameters
-        P_pv     = self.der.get_pv_profile(num_hours)
+        P_pv     = [self.der.get_max_pv_capacity()* v for v in self.der.get_pv_profile(num_hours)]
         phi_imp  = self.grid.get_import_tariff(num_hours)
         phi_exp  = self.grid.get_export_tariff(num_hours)
         da_price = self.grid.get_energy_price(num_hours)
 
-        P_min    = self.consumer.get_minimum_energy_requirement()
-        P_max    = self.consumer.get_maximum_energy_requirement()
         P_down   = self.grid.get_max_import(num_hours)
         P_up     = self.grid.get_max_export(num_hours)
-        P_L_max  = self.consumer.get_max_load_per_hour(num_hours)
+        P_L_max  = self.consumer.get_max_load_per_hour()
         P_bat_cap = self.consumer.get_storage_capacity()
-        P_bat_ch_max = self.consumer.get_max_charging_power()
-        P_bat_dis_max = self.consumer.get_max_discharging_power()
+        P_bat_ch_max = self.consumer.get_max_charging_power()*P_bat_cap
+        P_bat_dis_max = self.consumer.get_max_discharging_power()*P_bat_cap
         P_bat_ch_eff = self.consumer.get_charging_efficiency()
         P_bat_dis_eff = self.consumer.get_discharging_efficiency()
+
+        P_min    = self.consumer.get_minimum_energy_requirement()*P_L_max
+        P_max    = self.consumer.get_maximum_energy_requirement()*P_L_max
 
         if debug:
             print("=== DATA CHECK ===")
@@ -241,7 +246,7 @@ class EnergySystemModel:
         for t in T:
             variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down[t], name=f"p_import_{t}")
             variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up[t],   name=f"p_export_{t}")
-            variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max[t], name=f"p_load_{t}")
+            variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max, name=f"p_load_{t}")
             variables[f"p_pv_actual_{t}"] = model.addVar(lb=0, ub=P_pv[t],   name=f"p_pv_actual_{t}")
             # Exclusivity variables as continuous in [0,1]
             variables[f"y_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"y_{t}")
@@ -266,25 +271,36 @@ class EnergySystemModel:
             model.setObjective(objective - penalty_battery - penalty_grid, GRB.MAXIMIZE)
 
         elif question == "question_1b" or question == "question_1c":
-            # Minimize cost + discomfort, penalize simultaneous charge/discharge and import/export
-            reference_profile = self.consumer.get_reference_profile(num_hours)
+            # Maximize profit minus discomfort, penalize simultaneous charge/discharge and import/export
+            reference_profile = [v*P_L_max for v in self.consumer.get_reference_profile(num_hours)]  # scaled reference profile
             discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
 
-            cost_terms = quicksum(
-                (phi_imp[t] + da_price[t]) * variables[f"p_import_{t}"]
-                - (da_price[t] - phi_exp[t]) * variables[f"p_export_{t}"]
+            # Profit = export revenue - import cost
+            profit_terms = quicksum(
+                (da_price[t] - phi_exp[t]) * variables[f"p_export_{t}"]
+                - (da_price[t] + phi_imp[t]) * variables[f"p_import_{t}"]
                 for t in T
             )
 
+            # Discomfort: deviation from reference profile
             discomfort_terms = quicksum(
-                (variables[f"p_load_{t}"] - reference_profile[t]) *
-                (variables[f"p_load_{t}"] - reference_profile[t])
+                (variables[f"p_load_{t}"] - reference_profile[t])**2
                 for t in T
             )
 
+            # Small penalties to discourage simultaneous battery charge/discharge or import/export
             penalty_battery = epsilon * quicksum(variables[f"p_bat_charge_{t}"] + variables[f"p_bat_discharge_{t}"] for t in T)
             penalty_grid = epsilon * quicksum(variables[f"p_import_{t}"] + variables[f"p_export_{t}"] for t in T)
-            model.setObjective(cost_terms + discomfort_cost_per_kWh * discomfort_terms + penalty_battery + penalty_grid, GRB.MINIMIZE)
+
+            # Final objective: maximize profit minus discomfort and penalties
+            objective = (
+                profit_terms
+                - discomfort_cost_per_kWh * discomfort_terms
+                - penalty_battery
+                - penalty_grid
+            )
+
+            model.setObjective(objective, GRB.MAXIMIZE)
 
         # -----------------------------
         # Constraints
@@ -366,10 +382,24 @@ class EnergySystemModel:
                 # Use constraint name if available, else Gurobi's default name
                 cname = c.ConstrName if c.ConstrName else str(c)
                 duals[cname] = c.Pi
-            # Append reference to results
-            results['reference_profile'] = self.consumer.get_reference_profile(num_hours)
+            # Add curtailment for each hour to results
+            results['p_curtailment'] = [P_pv[t] - results[f'p_pv_actual_{t}'] for t in T]
             # Store duals in results for access, but keep return signature unchanged
             results['duals'] = duals
+            # Add reference profile if not 1a
+            if not question == "question_1a":
+                results['reference_profile'] = reference_profile
+            # For 1b/1c, also return true cost/profit and discomfort
+            if question in ["question_1b", "question_1c"]:
+                # Recompute cost and discomfort terms using the solution
+                discomfort = sum((results[f"p_load_{t}"] - reference_profile[t]) ** 2 for t in T)
+                results['discomfort'] = discomfort
+                # Compute actual profit as in 1a (export revenue - import cost)
+                actual_profit = sum((da_price[t] - phi_exp[t]) * results[f"p_export_{t}"] - (da_price[t] + phi_imp[t]) * results[f"p_import_{t}"] for t in T)
+                results['actual_profit'] = actual_profit
+            else:
+                # For 1a, actual profit is the objective value
+                results['actual_profit'] = model.objVal
             self.results = results
             self.total_profit = model.objVal
             return results, model.objVal

@@ -126,3 +126,29 @@ class DataVisualizer:
                     print(f"Warning: Could not generate filename for plot {k}. Plot not saved.")
             if show_plots:
                 plt.show()
+
+def plot_da_price():
+
+    """
+    Plots the DA price for a given scenario and saves it in the appropriate img/question folder.
+    """
+    import json
+    from pathlib import Path
+    import os 
+    import matplotlib.pyplot as plt
+    path = Path('data/question_1a/bus_params.json')
+    r = json.loads(path.read_text())
+    DA_prices = r[0].get("energy_price_DKK_per_kWh", None)
+    img_dir = os.path.join("img/other")
+    os.makedirs(img_dir, exist_ok=True)
+    plt.figure(figsize=(10, 5))
+    plt.plot(DA_prices, label="DA Price", color="tab:blue", marker="o")
+    plt.xlabel("Hour")
+    plt.ylabel("DA Price [DKK/kWh]")
+    plt.title(f"Day-Ahead Price")
+    plt.legend()
+    plt.grid(True, linestyle="--", alpha=0.5)
+    filename = os.path.join(img_dir, f"da_price.png")
+    plt.savefig(filename)
+    plt.close()
+    print(f"DA price plot saved to {filename}")

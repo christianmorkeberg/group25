@@ -1,7 +1,6 @@
 import gurobipy as gp
 from gurobipy import GRB, quicksum
-from gurobipy import Var
-
+#old
 # Utility function: ensures that a parameter (scalar or list) is returned as a list of hourly values.
 # This is important for time-series modeling in energy systems, where some parameters may be constant or vary by hour.
 def to_list(v, num_hours,scale=1.0):
@@ -65,14 +64,6 @@ class Consumer:
         else:
             v = 0
         return self.scale.get("storage_capacity_scale",1)*v
-    
-    def get_battery_price_coeff(self):
-        v = self.appliance_params.get("storage",[{}])
-        if v:
-            v = v[0].get("battery_price_coeff",1)
-        else:
-            v = 1
-        return v*self.scale.get("battery_price_coeff_scale",1)
 
     def get_max_charging_power(self):
         v = self.appliance_params.get("storage",[{}])
@@ -185,15 +176,15 @@ class Grid:
         v = self.bus_params[0].get("energy_price_DKK_per_kWh")
         return to_list(v, num_hours,self.scale.get("price_scale",1.0))
 
-    def get_max_import(self):
+    def get_max_import(self, num_hours):
         # Maximum power that can be imported from the grid each hour (kW)
         v = self.bus_params[0].get("max_import_kW")
-        return self.scale.get("max_import_kW",1.0)
+        return to_list(v, num_hours,self.scale.get("max_import_kW",1.0))
 
-    def get_max_export(self):
+    def get_max_export(self, num_hours):
         # Maximum power that can be exported to the grid each hour (kW)
         v = self.bus_params[0].get("max_export_kW")
-        return self.scale.get("max_export_kW",1.0)
+        return to_list(v, num_hours,self.scale.get("max_export_kW",1.0))
     
 
 
@@ -210,40 +201,18 @@ class EnergySystemModel:
     def build_and_solve_standardized(self, debug=False, question="question_1a",num_hours=24):
         T = list(range(num_hours))
 
-        # Create model
-        model = gp.Model("pv_grid_profit_max")
-        model.setParam("OutputFlag", 0) # Suppress Gurobi output, 0 = no output, 1 = output 
-
-        variables = {}
-        VARIABLES = []
-        for t in T:
-            VARIABLES += [f"p_import_{t}", f"p_export_{t}", f"p_load_{t}", f"p_pv_actual_{t}", f"y_{t}", f"z_{t}",
-                          f"p_bat_charge_{t}", f"p_bat_discharge_{t}", f"soc_{t}","p_bat_cap"]
-
         # Parameters
         P_pv     = [self.der.get_max_pv_capacity()* v for v in self.der.get_pv_profile(num_hours)]
         phi_imp  = self.grid.get_import_tariff(num_hours)
         phi_exp  = self.grid.get_export_tariff(num_hours)
         da_price = self.grid.get_energy_price(num_hours)
 
-        P_down   = min(self.grid.get_max_import(),17.0)
-        P_up     = min(self.grid.get_max_export(),17.0)
+        P_down   = self.grid.get_max_import(num_hours)
+        P_up     = self.grid.get_max_export(num_hours)
         P_L_max  = self.consumer.get_max_load_per_hour()
-        battery_price_coeff = self.consumer.get_battery_price_coeff()
-        if question in ["question_2b"]:
-            variables["p_bat_cap"] = model.addVar(lb=0, name="p_bat_cap")
-            P_bat_cap = variables["p_bat_cap"]
-        else:
-            variables["p_bat_cap"] = model.addVar(lb=self.consumer.get_storage_capacity(), ub = self.consumer.get_storage_capacity(),name="p_bat_cap")
-            P_bat_cap = self.consumer.get_storage_capacity()
-
-            # Strictly speaking this is not a variable, but a parameter. 
-            # However, defining it as a variable allows easy extension to optimization of battery size in question 2b
-            variables["p_bat_cap"] = P_bat_cap
-
+        P_bat_cap = self.consumer.get_storage_capacity()
         P_bat_ch_max = self.consumer.get_max_charging_power()*P_bat_cap
         P_bat_dis_max = self.consumer.get_max_discharging_power()*P_bat_cap
-
         P_bat_ch_eff = self.consumer.get_charging_efficiency()
         P_bat_dis_eff = self.consumer.get_discharging_efficiency()
 
@@ -260,26 +229,32 @@ class EnergySystemModel:
         # -----------------------------
         # Standardized formulation
         # -----------------------------
-        
+        VARIABLES = []
         objective_coeff = {}
 
         # Define variable names
-        
+        for t in T:
+            VARIABLES += [f"p_import_{t}", f"p_export_{t}", f"p_load_{t}", f"p_pv_actual_{t}", f"y_{t}", f"z_{t}",
+                          f"p_bat_charge_{t}", f"p_bat_discharge_{t}", f"soc_{t}"]
+
+        # Create model
+        model = gp.Model("pv_grid_profit_max")
+        model.setParam("OutputFlag", 0)
 
         # Add variables with bounds
-        
+        variables = {}
         for t in T:
-            variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down, name=f"p_import_{t}")
-            variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up,   name=f"p_export_{t}")
+            variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down[t], name=f"p_import_{t}")
+            variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up[t],   name=f"p_export_{t}")
             variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max, name=f"p_load_{t}")
             variables[f"p_pv_actual_{t}"] = model.addVar(lb=0, ub=P_pv[t],   name=f"p_pv_actual_{t}")
             # Exclusivity variables as continuous in [0,1]
             variables[f"y_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"y_{t}")
             variables[f"z_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"z_{t}")
             # Battery variables
-            variables[f"p_bat_charge_{t}"]    = model.addVar(lb=0, name=f"p_bat_charge_{t}")
-            variables[f"p_bat_discharge_{t}"] = model.addVar(lb=0, name=f"p_bat_discharge_{t}")
-            variables[f"soc_{t}"]             = model.addVar(lb=0,     name=f"soc_{t}")
+            variables[f"p_bat_charge_{t}"]    = model.addVar(lb=0, ub=P_bat_ch_max, name=f"p_bat_charge_{t}")
+            variables[f"p_bat_discharge_{t}"] = model.addVar(lb=0, ub=P_bat_dis_max, name=f"p_bat_discharge_{t}")
+            variables[f"soc_{t}"]             = model.addVar(lb=0, ub=P_bat_cap,      name=f"soc_{t}")
 
 
 
@@ -290,12 +265,12 @@ class EnergySystemModel:
             for t in T:
                 objective_coeff[f"p_export_{t}"] = (da_price[t] - phi_exp[t])
                 objective_coeff[f"p_import_{t}"] = -(da_price[t] + phi_imp[t])
-            objective_ = quicksum(objective_coeff.get(v, 0) * variables[v] for v in VARIABLES)
+            objective = quicksum(objective_coeff.get(v, 0) * variables[v] for v in VARIABLES)
             penalty_battery = epsilon * quicksum(variables[f"p_bat_charge_{t}"] + variables[f"p_bat_discharge_{t}"] for t in T)
             penalty_grid = epsilon * quicksum(variables[f"p_import_{t}"] + variables[f"p_export_{t}"] for t in T)
-            objective = objective_ - penalty_battery - penalty_grid
+            model.setObjective(objective - penalty_battery - penalty_grid, GRB.MAXIMIZE)
 
-        else: # question == "question_1b" or question == "question_1c":
+        elif question == "question_1b" or question == "question_1c":
             # Maximize profit minus discomfort, penalize simultaneous charge/discharge and import/export
             reference_profile = [v*P_L_max for v in self.consumer.get_reference_profile(num_hours)]  # scaled reference profile
             discomfort_cost_per_kWh = getattr(self.consumer, 'discomfort_cost_per_kWh', 1.0)
@@ -325,10 +300,7 @@ class EnergySystemModel:
                 - penalty_grid
             )
 
-            if question == "question_2b":
-                objective -= variables["p_bat_cap"]*battery_price_coeff
-
-        model.setObjective(objective, GRB.MAXIMIZE)
+            model.setObjective(objective, GRB.MAXIMIZE)
 
         # -----------------------------
         # Constraints
@@ -347,29 +319,6 @@ class EnergySystemModel:
         # Hourly balance + import/export exclusivity
         for t in T:
 
-            # Limit by capacity
-            #constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max, name=f"charge_cap_{t}"))
-            #constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max, name=f"discharge_cap_{t}"))
-            constraints.append(model.addLConstr(variables[f"soc_{t}"], GRB.LESS_EQUAL, variables["p_bat_cap"],name=f"soc_lim_{t}"))
-
-            if  question in ["question_2b"]:
-                # If battery capacity is a variable (question 2b), we need to use big M method in another fasion
-                # Where we don't multiply two variables
-                big_m = 1e3  # A sufficiently large number
-
-                # Exclusivity (big-M with z_t)
-                constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, big_m * variables[f"z_{t}"], name=f"charge_excl_{t}"))
-                constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, big_m * (1 - variables[f"z_{t}"]), name=f"discharge_excl_{t}"))
-                #constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL,  variables[f"z_{t}"], name=f"charge_excl_{t}"))
-                #constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, (1 - variables[f"z_{t}"]), name=f"discharge_excl_{t}"))
-                
-            else: # question 1a, 1b, 1c
-                # Battery exclusivity (Big-M logic) - use separate big-M for charge/discharge with continuous z_t
-                # Here we can use the actual max power since p_bat_cap is fixed and not a variable
-                constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max * variables[f"z_{t}"],name=f"charge_exclusivity_{t}"))
-                constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max * (1 - variables[f"z_{t}"]),name=f"discharge_exclusivity_{t}"))
-
-
             # Hourly balance. 
             constraints.append(
                 model.addLConstr(
@@ -384,18 +333,27 @@ class EnergySystemModel:
                 )
             )
 
+
+            # Exclusivity (Big-M logic) - use separate big-M for import/export with continuous y_t
+            constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, P_down[t] * variables[f"y_{t}"],name=f"import_exclusivity_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, P_up[t] * (1 - variables[f"y_{t}"]),name=f"export_exclusivity_{t}"))
+
+            # Battery exclusivity (Big-M logic) - use separate big-M for charge/discharge with continuous z_t
+            constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max * variables[f"z_{t}"],name=f"charge_exclusivity_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max * (1 - variables[f"z_{t}"]),name=f"discharge_exclusivity_{t}"))
+
             # Constrain SOC for all houes except the last one where SOC bust be over final_soc (see above)
             # Here we include efficiency!
             if t == T[0]:
                 # Initial SOC constraint
                 initial_soc = self.consumer.get_initial_soc()
                 constraints.append(
-                    model.addLConstr(variables[f"soc_{t}"], GRB.EQUAL, initial_soc*variables["p_bat_cap"], name="soc_init")
+                    model.addLConstr(variables[f"soc_{t}"], GRB.EQUAL, initial_soc * P_bat_cap, name="soc_init")
                 )
             if t == T[-1]:
                 final_soc = self.consumer.get_final_soc()
                 constraints.append(
-                    model.addLConstr(variables[f"soc_{t}"], GRB.GREATER_EQUAL, final_soc*variables["p_bat_cap"], name="soc_end_min")
+                    model.addLConstr(variables[f"soc_{t}"], GRB.GREATER_EQUAL, final_soc * P_bat_cap, name="soc_end_min")
                 )
             if t != T[-1]:
                 constraints.append(
@@ -416,28 +374,16 @@ class EnergySystemModel:
         model.optimize()
 
         if model.status == GRB.OPTIMAL:
-            # Primal values: only Gurobi variables get .X, others (like p_bat_cap) are added directly
-            results = {}
-            for v in VARIABLES:
-                if hasattr(variables[v], 'X'):
-                    results[v] = variables[v].X
-                else:
-                    results[v] = variables[v]
-            # Add non-Gurobi parameters explicitly if needed
-            if question != "question_2b":
-                results['p_bat_cap'] = P_bat_cap
+            # Primal values
+            results = {v: variables[v].X for v in VARIABLES}
             # Dual values
             duals = {}
-            #for c in model.getConstrs():
-            #    # Use constraint name if available, else Gurobi's default name
-            #    cname = c.ConstrName if c.ConstrName else str(c)
-            #    duals[cname] = c.Pi
+            for c in model.getConstrs():
+                # Use constraint name if available, else Gurobi's default name
+                cname = c.ConstrName if c.ConstrName else str(c)
+                duals[cname] = c.Pi
             # Add curtailment for each hour to results
             results['p_curtailment'] = [P_pv[t] - results[f'p_pv_actual_{t}'] for t in T]
-            # Handle p_bat_cap as either a Gurobi variable or a number
-            p_bat_cap_val = results["p_bat_cap"].X if hasattr(results["p_bat_cap"], "X") else results["p_bat_cap"]
-            results["soc_normal"] = [results[f"soc_{t}"]/p_bat_cap_val if p_bat_cap_val > 0 else 0 for t in T]
-            results["battery_price_coeff"] = battery_price_coeff
             # Store duals in results for access, but keep return signature unchanged
             results['duals'] = duals
             # Add reference profile if not 1a

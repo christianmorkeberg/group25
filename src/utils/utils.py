@@ -129,11 +129,18 @@ def plot_data():
     pass
 
 def select_scenarios(d, keys):
-    if keys == "All":
+    if keys == "All" or keys == ["All"]:
         return d
     if isinstance(keys, str):
         keys = [keys]
-    return {k: d[k] for k in keys if k in d}
+    # Create a mapping from lowercase keys to original keys
+    lower_map = {k.lower(): k for k in d}
+    selected = {}
+    for key in keys:
+        k_lower = key.lower()
+        if k_lower in lower_map:
+            selected[lower_map[k_lower]] = d[lower_map[k_lower]]
+    return selected
 
 def get_all_scenarios(question):
     """Load and return all scenario names from the _scenario_names.json file."""

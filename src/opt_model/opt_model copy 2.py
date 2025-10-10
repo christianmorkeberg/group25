@@ -185,15 +185,15 @@ class Grid:
         v = self.bus_params[0].get("energy_price_DKK_per_kWh")
         return to_list(v, num_hours,self.scale.get("price_scale",1.0))
 
-    def get_max_import(self):
+    def get_max_import(self, num_hours):
         # Maximum power that can be imported from the grid each hour (kW)
         v = self.bus_params[0].get("max_import_kW")
-        return self.scale.get("max_import_kW",1.0)
+        return to_list(v, num_hours,self.scale.get("max_import_kW",1.0))
 
-    def get_max_export(self):
+    def get_max_export(self, num_hours):
         # Maximum power that can be exported to the grid each hour (kW)
         v = self.bus_params[0].get("max_export_kW")
-        return self.scale.get("max_export_kW",1.0)
+        return to_list(v, num_hours,self.scale.get("max_export_kW",1.0))
     
 
 
@@ -226,8 +226,8 @@ class EnergySystemModel:
         phi_exp  = self.grid.get_export_tariff(num_hours)
         da_price = self.grid.get_energy_price(num_hours)
 
-        P_down   = min(self.grid.get_max_import(),17.0)
-        P_up     = min(self.grid.get_max_export(),17.0)
+        P_down   = self.grid.get_max_import(num_hours)
+        P_up     = self.grid.get_max_export(num_hours)
         P_L_max  = self.consumer.get_max_load_per_hour()
         battery_price_coeff = self.consumer.get_battery_price_coeff()
         if question in ["question_2b"]:
@@ -236,13 +236,14 @@ class EnergySystemModel:
         else:
             variables["p_bat_cap"] = model.addVar(lb=self.consumer.get_storage_capacity(), ub = self.consumer.get_storage_capacity(),name="p_bat_cap")
             P_bat_cap = self.consumer.get_storage_capacity()
-
+            P_bat_ch_max = self.consumer.get_max_charging_power()*P_bat_cap
+            P_bat_dis_max = self.consumer.get_max_discharging_power()*P_bat_cap
             # Strictly speaking this is not a variable, but a parameter. 
             # However, defining it as a variable allows easy extension to optimization of battery size in question 2b
             variables["p_bat_cap"] = P_bat_cap
 
-        P_bat_ch_max = self.consumer.get_max_charging_power()*P_bat_cap
-        P_bat_dis_max = self.consumer.get_max_discharging_power()*P_bat_cap
+        P_bat_ch_ratio = self.consumer.get_max_charging_power()
+        P_bat_dis_ratio = self.consumer.get_max_discharging_power()
 
         P_bat_ch_eff = self.consumer.get_charging_efficiency()
         P_bat_dis_eff = self.consumer.get_discharging_efficiency()
@@ -269,13 +270,14 @@ class EnergySystemModel:
         # Add variables with bounds
         
         for t in T:
-            variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down, name=f"p_import_{t}")
-            variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up,   name=f"p_export_{t}")
+            variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down[t], name=f"p_import_{t}")
+            variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up[t],   name=f"p_export_{t}")
             variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max, name=f"p_load_{t}")
             variables[f"p_pv_actual_{t}"] = model.addVar(lb=0, ub=P_pv[t],   name=f"p_pv_actual_{t}")
             # Exclusivity variables as continuous in [0,1]
             variables[f"y_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"y_{t}")
-            variables[f"z_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"z_{t}")
+            #variables[f"z_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"z_{t}")
+            variables[f"z_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.BINARY, name=f"z_{t}")
             # Battery variables
             variables[f"p_bat_charge_{t}"]    = model.addVar(lb=0, name=f"p_bat_charge_{t}")
             variables[f"p_bat_discharge_{t}"] = model.addVar(lb=0, name=f"p_bat_discharge_{t}")
@@ -348,18 +350,20 @@ class EnergySystemModel:
         for t in T:
 
             # Limit by capacity
-            #constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max, name=f"charge_cap_{t}"))
-            #constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max, name=f"discharge_cap_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_ratio * variables["p_bat_cap"], name=f"charge_cap_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_ratio * variables["p_bat_cap"], name=f"discharge_cap_{t}"))
             constraints.append(model.addLConstr(variables[f"soc_{t}"], GRB.LESS_EQUAL, variables["p_bat_cap"],name=f"soc_lim_{t}"))
 
             if  question in ["question_2b"]:
                 # If battery capacity is a variable (question 2b), we need to use big M method in another fasion
                 # Where we don't multiply two variables
-                big_m = 1e3  # A sufficiently large number
+                big_m = 200
+                M_charge = self.consumer.get_max_charging_power() * big_m     # Big M upper bound
+                M_discharge = self.consumer.get_max_discharging_power() * big_m  # Big M upper bound
 
                 # Exclusivity (big-M with z_t)
-                constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, big_m * variables[f"z_{t}"], name=f"charge_excl_{t}"))
-                constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, big_m * (1 - variables[f"z_{t}"]), name=f"discharge_excl_{t}"))
+                constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, M_charge * variables[f"z_{t}"], name=f"charge_excl_{t}"))
+                constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, M_discharge * (1 - variables[f"z_{t}"]), name=f"discharge_excl_{t}"))
                 #constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL,  variables[f"z_{t}"], name=f"charge_excl_{t}"))
                 #constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, (1 - variables[f"z_{t}"]), name=f"discharge_excl_{t}"))
                 

@@ -2,6 +2,72 @@ import matplotlib.pyplot as plt
 import os
 
 class DataVisualizer:
+    def plot_battery_capacity_vs_price(self, price_coeff_key="battery_price_coeff", cap_key="p_bat_cap", show_plot=True, save_plot=False):
+        """
+        Plots battery capacity as a function of battery price coefficient across scenarios.
+        price_coeff_key: key in results or scenario label for battery price coefficient
+        cap_key: key in results for battery capacity (default: 'p_bat_cap')
+        """
+        if not self.scenarios:
+            print("No scenarios to plot.")
+            return
+        x_vals = []
+        y_vals = []
+        labels = []
+        for scenario_name, scenario in self.scenarios.items():
+            # Try to get price coefficient from results, else from label or scenario name
+            price_coeff = scenario['results'].get(price_coeff_key)
+            if price_coeff is None:
+                # Try to parse from label or scenario name (assume format like 'price_0.1')
+                import re
+                match = re.search(r"([\d.]+)", scenario['label'])
+                if match:
+                    price_coeff = float(match.group(1))
+                else:
+                    price_coeff = scenario_name
+            cap = scenario['results'].get(cap_key)
+            if cap is not None:
+                x_vals.append(price_coeff)
+                y_vals.append(cap)
+                labels.append(scenario['label'])
+        if not x_vals:
+            print(f"No data found for keys '{price_coeff_key}' and '{cap_key}'.")
+            return
+        # Convert all x and y values to floats (handle Gurobi Var objects)
+        def to_float(val):
+            if hasattr(val, 'X'):
+                return float(val.X)
+            try:
+                return float(val)
+            except Exception:
+                return None
+        x_vals_f = [to_float(x) for x in x_vals]
+        y_vals_f = [to_float(y) for y in y_vals]
+        # Remove any pairs where conversion failed
+        filtered = [(x, y, label) for x, y, label in zip(x_vals_f, y_vals_f, labels) if x is not None and y is not None]
+        if not filtered:
+            print("No valid numeric data to plot.")
+            return
+        x_vals_f, y_vals_f, labels = zip(*filtered)
+        # Sort by x for nice plotting
+        xy = sorted(zip(x_vals_f, y_vals_f, labels), key=lambda tup: tup[0])
+        x_vals_f, y_vals_f, labels = zip(*xy)
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(8, 5))
+        plt.plot(x_vals_f, y_vals_f, marker="o", linestyle="-", color="tab:blue")
+        plt.xlabel("Battery Price Coefficient")
+        plt.ylabel("Optimal Battery Capacity (kWh)")
+        plt.title("Battery Capacity vs. Battery Price Coefficient")
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.tight_layout()
+        if save_plot:
+            img_dir = os.path.join("img", self.question if self.question else "")
+            os.makedirs(img_dir, exist_ok=True)
+            filename = os.path.join(img_dir, "battery_capacity_vs_price.png")
+            plt.savefig(filename)
+            print(f"Plot saved: {filename}")
+        if show_plot:
+            plt.show()
     """
     Modular class for visualizing optimization results and comparing scenarios.
     """
@@ -99,7 +165,7 @@ class DataVisualizer:
                     linewidth=2
                 )
             # Plot reference_profile if available and not all None, and if key is not 'soc'
-            if ref_profile_to_plot is not None and k != 'soc':
+            if ref_profile_to_plot is not None and k != 'soc_normal':
                 plt.plot(ref_profile_to_plot, label='reference_profile', linestyle='--', color='black', linewidth=2)
             plt.title(f"Comparison: {k}")
             plt.xlabel("Hour")
@@ -152,3 +218,4 @@ def plot_da_price():
     plt.savefig(filename)
     plt.close()
     print(f"DA price plot saved to {filename}")
+

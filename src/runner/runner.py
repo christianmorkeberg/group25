@@ -76,7 +76,7 @@ class Runner:
         consumer = Consumer(
             usage_preference,
             appliance_params,
-            scale={"load_scale": scaling.get("load_scale", 1.0)}
+            scale=scaling
         )
         # Attach discomfort_cost_per_kWh if present in scaling
         if "discomfort_cost_per_kWh" in scaling:
@@ -85,17 +85,17 @@ class Runner:
         der = DER(
             der_production,
             appliance_params,
-            scale={"pv_scale": scaling.get("pv_scale", 1.0)}
+            scale=scaling#{"pv_scale": scaling.get("pv_scale", 1.0)}
         )
         grid = Grid(
             bus_params,
-            scale={
-            "import_tariff_scale": scaling.get("import_tariff_scale", 1.0),
-            "export_tariff_scale": scaling.get("export_tariff_scale", 1.0),
-            "price_scale": scaling.get("price_scale", 1.0),
-            "max_import_kW": scaling.get("max_import_kW", 0.0),
-            "max_export_kW": scaling.get("max_export_kW", 0.0)
-            }
+            scale=scaling#{
+            # "import_tariff_scale": scaling.get("import_tariff_scale", 1.0),
+            # "export_tariff_scale": scaling.get("export_tariff_scale", 1.0),
+            # "price_scale": scaling.get("price_scale", 1.0),
+            # "max_import_kW": scaling.get("max_import_kW", 0.0),
+            # "max_export_kW": scaling.get("max_export_kW", 0.0)
+            # }
         )
         model = EnergySystemModel(consumer, der, grid)
         results, profit = model.build_and_solve_standardized(debug=False,question=self.question,num_hours=self.num_hours)
@@ -117,8 +117,13 @@ class Runner:
             print(f"Scenario: {scenario_name}, Profit: {profit}")
         # Plot comparison
         if self.show_plots or self.save_plots:
-            visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv',"p_bat_charge","p_bat_discharge","soc","p_curtailment"],
+            visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv',"p_bat_charge","p_bat_discharge","soc_normal","p_curtailment"],
                                        show_plots = self.show_plots,
                                        save_plots=self.save_plots)
+            if self.question == "question_2b":
+                # Plot the p_bat_cap for question 2b using plot_battery_capacity_vs_price 
+                visualizer.plot_battery_capacity_vs_price(show_plot=self.show_plots, save_plot=self.save_plots)
+
+                
         return scenario_results
 

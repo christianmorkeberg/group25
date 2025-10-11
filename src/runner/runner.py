@@ -32,11 +32,13 @@ class Runner:
     Handles configuration setting, data loading and preparation, model(s) execution, results saving and ploting
     """
 
-    def __init__(self,show_plots=False,save_plots=False,question=None,num_hours=24) -> None:
+    def __init__(self,show_plots=False,save_plots=False,question=None,num_hours=24,vary_tariff=False,fixed_da=None) -> None:
         self.show_plots = show_plots
         self.save_plots = save_plots
         self.question = question
         self.num_hours = num_hours # default, will be updated in run_single_simulation
+        self.vary_tariff = vary_tariff
+        self.fixed_da = fixed_da
         """Initialize the Runner."""
 
     def _load_config(self) -> None:
@@ -78,27 +80,21 @@ class Runner:
             appliance_params,
             scale=scaling
         )
-        # Attach discomfort_cost_per_kWh if present in scaling
+        #Attach discomfort_cost_per_kWh if present in scaling
         if "discomfort_cost_per_kWh" in scaling:
             consumer.discomfort_cost_per_kWh = scaling["discomfort_cost_per_kWh"]
 
         der = DER(
             der_production,
             appliance_params,
-            scale=scaling#{"pv_scale": scaling.get("pv_scale", 1.0)}
+            scale=scaling
         )
         grid = Grid(
             bus_params,
-            scale=scaling#{
-            # "import_tariff_scale": scaling.get("import_tariff_scale", 1.0),
-            # "export_tariff_scale": scaling.get("export_tariff_scale", 1.0),
-            # "price_scale": scaling.get("price_scale", 1.0),
-            # "max_import_kW": scaling.get("max_import_kW", 0.0),
-            # "max_export_kW": scaling.get("max_export_kW", 0.0)
-            # }
+            scale=scaling
         )
         model = EnergySystemModel(consumer, der, grid)
-        results, profit = model.build_and_solve_standardized(debug=False,question=self.question,num_hours=self.num_hours)
+        results, profit = model.build_and_solve_standardized(debug=False,question=self.question,num_hours=self.num_hours,vary_tariff=self.vary_tariff,fixed_da=self.fixed_da)
     # Only add scenario and plot in run_all_simulations, not here
         return results, profit
 
@@ -119,7 +115,9 @@ class Runner:
         if self.show_plots or self.save_plots:
             visualizer.plot_comparison(keys=["p_import", "p_export", "p_load", "p_pv_actual",'curtailment','P_pv',"p_bat_charge","p_bat_discharge","soc_normal","p_curtailment"],
                                        show_plots = self.show_plots,
-                                       save_plots=self.save_plots)
+                                       save_plots=self.save_plots,
+                                       fixed_da=self.fixed_da,
+                                       vary_tariff=self.vary_tariff)
             if self.question == "question_2b":
                 # Plot the p_bat_cap for question 2b using plot_battery_capacity_vs_price 
                 visualizer.plot_battery_capacity_vs_price(show_plot=self.show_plots, save_plot=self.save_plots)

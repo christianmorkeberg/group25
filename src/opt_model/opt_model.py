@@ -1,6 +1,7 @@
 import gurobipy as gp
 from gurobipy import GRB, quicksum
 from gurobipy import Var
+import numpy as np 
 
 # Utility function: ensures that a parameter (scalar or list) is returned as a list of hourly values.
 # This is important for time-series modeling in energy systems, where some parameters may be constant or vary by hour.
@@ -188,12 +189,12 @@ class Grid:
     def get_max_import(self):
         # Maximum power that can be imported from the grid each hour (kW)
         v = self.bus_params[0].get("max_import_kW")
-        return self.scale.get("max_import_kW",1.0)
+        return v* self.scale.get("max_import_kW",1.0)
 
     def get_max_export(self):
         # Maximum power that can be exported to the grid each hour (kW)
         v = self.bus_params[0].get("max_export_kW")
-        return self.scale.get("max_export_kW",1.0)
+        return v*self.scale.get("max_export_kW",1.0)
     
 
 
@@ -207,7 +208,7 @@ class EnergySystemModel:
         self.model = None
         self.results = None
 
-    def build_and_solve_standardized(self, debug=False, question="question_1a",num_hours=24):
+    def build_and_solve_standardized(self, debug=False, question="question_1a",num_hours=24,vary_tariff=False,fixed_da=None):
         T = list(range(num_hours))
 
         # Create model
@@ -224,10 +225,24 @@ class EnergySystemModel:
         P_pv     = [self.der.get_max_pv_capacity()* v for v in self.der.get_pv_profile(num_hours)]
         phi_imp  = self.grid.get_import_tariff(num_hours)
         phi_exp  = self.grid.get_export_tariff(num_hours)
-        da_price = self.grid.get_energy_price(num_hours)
 
-        P_down   = min(self.grid.get_max_import(),17.0)
-        P_up     = min(self.grid.get_max_export(),17.0)
+        
+        if vary_tariff:
+            np.random.seed(42)
+            scale = np.random.uniform(0.5, 1.5, num_hours)
+            phi_imp = [phi_imp[t]*scale[t] for t in T]
+            phi_exp = [phi_exp[t]*scale[t] for t in T]
+
+        if fixed_da and isinstance(fixed_da,(int,float)):
+            da_price = [fixed_da for _ in range(num_hours)]
+        else:
+            da_price = self.grid.get_energy_price(num_hours)
+
+        P_down   = self.grid.get_max_import()
+        P_up     = self.grid.get_max_export()
+        if question == "question_2b":
+            P_down   = min(P_down,17.0)
+            P_up     = min(P_up,17.0)
         P_L_max  = self.consumer.get_max_load_per_hour()
         battery_price_coeff = self.consumer.get_battery_price_coeff()
         if question in ["question_2b"]:
@@ -236,7 +251,6 @@ class EnergySystemModel:
         else:
             variables["p_bat_cap"] = model.addVar(lb=self.consumer.get_storage_capacity(), ub = self.consumer.get_storage_capacity(),name="p_bat_cap")
             P_bat_cap = self.consumer.get_storage_capacity()
-
             # Strictly speaking this is not a variable, but a parameter. 
             # However, defining it as a variable allows easy extension to optimization of battery size in question 2b
             variables["p_bat_cap"] = P_bat_cap
@@ -269,10 +283,10 @@ class EnergySystemModel:
         # Add variables with bounds
         
         for t in T:
-            variables[f"p_import_{t}"]    = model.addVar(lb=0, ub=P_down, name=f"p_import_{t}")
-            variables[f"p_export_{t}"]    = model.addVar(lb=0, ub=P_up,   name=f"p_export_{t}")
-            variables[f"p_load_{t}"]      = model.addVar(lb=0, ub=P_L_max, name=f"p_load_{t}")
-            variables[f"p_pv_actual_{t}"] = model.addVar(lb=0, ub=P_pv[t],   name=f"p_pv_actual_{t}")
+            variables[f"p_import_{t}"]    = model.addVar(lb=0, name=f"p_import_{t}")
+            variables[f"p_export_{t}"]    = model.addVar(lb=0,  name=f"p_export_{t}")
+            variables[f"p_load_{t}"]      = model.addVar(lb=0, name=f"p_load_{t}")
+            variables[f"p_pv_actual_{t}"] = model.addVar(lb=0,  name=f"p_pv_actual_{t}")
             # Exclusivity variables as continuous in [0,1]
             variables[f"y_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"y_{t}")
             variables[f"z_{t}"]           = model.addVar(lb=0, ub=1, vtype=GRB.CONTINUOUS, name=f"z_{t}")
@@ -346,11 +360,14 @@ class EnergySystemModel:
 
         # Hourly balance + import/export exclusivity
         for t in T:
-
-            # Limit by capacity
-            #constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, P_bat_ch_max, name=f"charge_cap_{t}"))
-            #constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, P_bat_dis_max, name=f"discharge_cap_{t}"))
+            # SOC limits
             constraints.append(model.addLConstr(variables[f"soc_{t}"], GRB.LESS_EQUAL, variables["p_bat_cap"],name=f"soc_lim_{t}"))
+
+            # limits
+            constraints.append(model.addLConstr(variables[f"p_import_{t}"], GRB.LESS_EQUAL, P_down, name=f"import_lim_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_export_{t}"], GRB.LESS_EQUAL, P_up, name=f"export_lim_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_pv_actual_{t}"], GRB.LESS_EQUAL, P_pv[t], name=f"pv_lim_{t}"))
+            constraints.append(model.addLConstr(variables[f"p_load_{t}"], GRB.LESS_EQUAL, P_L_max, name=f"p_load_lim_{t}"))
 
             if  question in ["question_2b"]:
                 # If battery capacity is a variable (question 2b), we need to use big M method in another fasion
@@ -360,9 +377,7 @@ class EnergySystemModel:
                 # Exclusivity (big-M with z_t)
                 constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL, big_m * variables[f"z_{t}"], name=f"charge_excl_{t}"))
                 constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, big_m * (1 - variables[f"z_{t}"]), name=f"discharge_excl_{t}"))
-                #constraints.append(model.addLConstr(variables[f"p_bat_charge_{t}"], GRB.LESS_EQUAL,  variables[f"z_{t}"], name=f"charge_excl_{t}"))
-                #constraints.append(model.addLConstr(variables[f"p_bat_discharge_{t}"], GRB.LESS_EQUAL, (1 - variables[f"z_{t}"]), name=f"discharge_excl_{t}"))
-                
+
             else: # question 1a, 1b, 1c
                 # Battery exclusivity (Big-M logic) - use separate big-M for charge/discharge with continuous z_t
                 # Here we can use the actual max power since p_bat_cap is fixed and not a variable
@@ -428,10 +443,10 @@ class EnergySystemModel:
                 results['p_bat_cap'] = P_bat_cap
             # Dual values
             duals = {}
-            #for c in model.getConstrs():
-            #    # Use constraint name if available, else Gurobi's default name
-            #    cname = c.ConstrName if c.ConstrName else str(c)
-            #    duals[cname] = c.Pi
+            for c in model.getConstrs():
+               # Use constraint name if available, else Gurobi's default name
+               cname = c.ConstrName if c.ConstrName else str(c)
+               duals[cname] = c.Pi
             # Add curtailment for each hour to results
             results['p_curtailment'] = [P_pv[t] - results[f'p_pv_actual_{t}'] for t in T]
             # Handle p_bat_cap as either a Gurobi variable or a number
@@ -440,6 +455,9 @@ class EnergySystemModel:
             results["battery_price_coeff"] = battery_price_coeff
             # Store duals in results for access, but keep return signature unchanged
             results['duals'] = duals
+            results['phi_imp'] = phi_imp
+            results['phi_exp'] = phi_exp
+            results['da_price'] = da_price
             # Add reference profile if not 1a
             if not question == "question_1a":
                 results['reference_profile'] = reference_profile

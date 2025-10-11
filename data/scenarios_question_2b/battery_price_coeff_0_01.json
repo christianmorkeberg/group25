@@ -1,4 +1,4 @@
 {
   "battery_price_coeff_scale": 0.01,
-  "discomfort_cost_per_kWh": 0.1
+  "discomfort_cost_per_kWh":2
 }

@@ -69,7 +69,7 @@ def print_results_small(results, profit, scenario_name=None):
     print("============================\n")
 
 # Print results and profit for all scenarios
-def print_all_scenarios(scenario_results, mode="large",question=None):
+def print_all_scenarios(scenario_results, mode="large",question=None,vary_tariff=False,fixed_da=None):
     print("\n=== Scenario Results ===")
     for name, result in scenario_results.items():
         print(f"\nScenario: {name}")
@@ -82,6 +82,11 @@ def print_all_scenarios(scenario_results, mode="large",question=None):
         if duals:
             # Export duals to a .txt file per scenario
             filename = f"txt/{question}/duals_{name.replace(' ', '_')}.txt"
+            if vary_tariff:
+                # add suffix to filename
+                filename = filename.replace(".txt", "_varytariff.txt")
+            if fixed_da is not None:
+                filename = filename.replace(".txt", f"_fixedDA{fixed_da}.txt")
             with open(filename, 'w') as f:
                 f.write(f"Dual values (shadow prices) for scenario: {name}\n")
                 for cname, dual in duals.items():
@@ -129,7 +134,7 @@ def plot_data():
     pass
 
 def select_scenarios(d, keys):
-    if keys == "All" or keys == ["All"]:
+    if keys == "All" or keys == ["All"]or keys == ["all"]:
         return d
     if isinstance(keys, str):
         keys = [keys]

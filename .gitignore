@@ -208,7 +208,7 @@ __marimo__/
 
 
 # Images in img folder
-img/*
+*.png
 
 # Text files in txt folder
-txt/*
+*.txt

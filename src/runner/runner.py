@@ -41,22 +41,6 @@ class Runner:
         self.fixed_da = fixed_da
         """Initialize the Runner."""
 
-    def _load_config(self) -> None:
-        """Load configuration (placeholder method)"""
-    # Extract simulation configuration and hyperparameter values (e.g. question, scenarios for sensitivity analysis, duration of simulation, solver name, etc.) and store them as class attributes (e.g. self.scenario_list, self.solver_name, etc.)
-    
-    def _create_directories(self) -> None:
-        """Create required directories for each simulation configuration. (placeholder method)"""
-
-    def prepare_data_single_simulation(self, question_name) -> None:
-        """Prepare input data for a single simulation (placeholder method)"""
-        # Prepare input data using DataProcessor for a given simulation configuration and store it as class attributes (e.g. self.data)
-
-    def prepare_data_all_simulations(self) -> None:
-        """Prepare input data for multiple scenarios/sensitivity analysis/questions (placeholder method)"""
-        # Extend data_loader to handle multiple scenarios/questions
-        # Prepare data using data_loader for multiple scenarios/questions
-        
     def run_single_simulation(self, question, input_path, scaling_path):
         """
         Run a single simulation for a given question, input path, and scaling file.

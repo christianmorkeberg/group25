@@ -30,8 +30,11 @@ def main():
     print_all_scenarios(scenario_results,mode="small",question=question,vary_tariff=vary_tariff,fixed_da=fixed_da) # small or large
     
     # Plot duals
-    from data_ops.data_visualizer import plot_duals_from_txt
-    plot_duals_from_txt(f"txt/{question}/duals_Base_case.txt",save_plot=True,show_plot=False)
+    if 1:
+        from data_ops.data_visualizer import plot_duals_from_txt
+        duals_dir = Path(f"txt/{question}")
+        for dual_file in duals_dir.glob("duals_*.txt"):
+            plot_duals_from_txt(str(dual_file), save_plot=True, show_plot=False, out_dir=f"img/duals/{question}/")
 
 if __name__ == "__main__":
     main()

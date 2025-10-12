@@ -123,15 +123,6 @@ def load_dataset(question_name):
  
     return result
 
-# example function to save model results in a specified directory
-def save_model_results():
-    """Placeholder for save_model_results function."""
-    pass
-
-# example function to plot data from a specified directory
-def plot_data():
-    """Placeholder for plot_data function."""
-    pass
 
 def select_scenarios(d, keys):
     if keys == "All" or keys == ["All"]or keys == ["all"]:

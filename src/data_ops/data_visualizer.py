@@ -346,9 +346,48 @@ def plot_duals_from_txt(dual_file_path, include=None, exclude=None, show_plot=Tr
         print(f"Failed to read dual file: {e}")
         return
 
+    # Report if there are any 'excl' entries and skip them in plotting/printing
+    # Also exclude if 'soc_update' or 'balance' in bases or names
+    excl_series_bases = [b for b in series.keys() if 'excl' in b.lower() or 'soc_update' in b.lower() or 'balance' in b.lower()]
+    excl_scalar_names = [n for n in scalars.keys() if 'excl' in n.lower() or 'soc_update' in n.lower() or 'balance' in n.lower()]
+    if excl_series_bases or excl_scalar_names:
+        print(f"Ignoring {len(excl_series_bases)} excluded series and {len(excl_scalar_names)} excluded scalar entries.")
+
     # Filter by include/exclude
     def allowed(base):
+        # Always ignore exclusivity-related series and 'soc_update'/'balance'
+        base_lower = base.lower()
+        if 'excl' in base_lower or 'soc_update' in base_lower or 'balance' in base_lower:
+            return False
         if include and base not in include:
+            return False
+        if exclude and base in exclude:
+            return False
+        return True
+    excl_series_bases = [b for b in series.keys() if 'excl' in b.lower()]
+    excl_scalar_names = [n for n in scalars.keys() if 'excl' in n.lower()]
+    # Default high-volume constraints to suppress unless explicitly included
+    default_ignore = {"balance", "soc_update"}
+    default_ignored_present = [b for b in series.keys() if b.lower() in default_ignore]
+    if excl_series_bases or excl_scalar_names or default_ignored_present:
+        msg = []
+        if excl_series_bases or excl_scalar_names:
+            msg.append(f"ignoring {len(excl_series_bases)} 'excl' series and {len(excl_scalar_names)} 'excl' scalars")
+        if default_ignored_present and (include is None):
+            msg.append(f"suppressing {sorted({b.lower() for b in default_ignored_present})} by default")
+        if msg:
+            print("Duals filter:", "; ".join(msg))
+
+    # Filter by include/exclude
+    def allowed(base):
+        # Always ignore exclusivity-related series
+        if 'excl' in base.lower():
+            return False
+        # If an include list is provided, only allow those (except excl)
+        if include is not None:
+            return base in include
+        # Suppress common high-volume constraints by default
+        if base.lower() in default_ignore:
             return False
         if exclude and base in exclude:
             return False
@@ -385,9 +424,19 @@ def plot_duals_from_txt(dual_file_path, include=None, exclude=None, show_plot=Tr
 
     if not any_series:
         print("No time-indexed dual series found to plot.")
-        if scalars:
+        # Print scalar duals, excluding 'excl' and default-ignored entries (unless explicitly included)
+        def scalar_allowed(name: str) -> bool:
+            if 'excl' in name.lower():
+                return False
+            if include is not None:
+                return name in include
+            if name.lower() in default_ignore:
+                return False
+            return True
+        scalar_items = [(k, v) for k, v in scalars.items() if scalar_allowed(k)]
+        if scalar_items:
             print("Scalars:")
-            for k, v in scalars.items():
+            for k, v in scalar_items:
                 print(f"  {k}: {v}")
         return
 

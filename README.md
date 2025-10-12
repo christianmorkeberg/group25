@@ -1,7 +1,4 @@
-# Assignment 1 – Project README (implementation-focused)
-
-This README mirrors the structure and tone of the provided template README, but documents how the code in this repository is actually implemented and how to use it end-to-end.
-
+# Assignment 1 – Project README
 ## Overview
 
 This project implements a modular workflow for 46750 – Optimization in Modern Power Systems (Assignment 1). It includes:

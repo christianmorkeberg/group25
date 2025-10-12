@@ -1,12 +1,8 @@
 """
-Placeholder for main function to execute the model runner. This function creates a single/multiple instance of the Runner class, prepares input data,
-and runs a single/multiple simulation.
+Project entry point for running optimization scenarios and generating outputs.
 
-Suggested structure:
-- Import necessary modules and functions.
-- Define a main function to encapsulate the workflow (e.g. Create an instance of your the Runner class, Run a single simulation or multiple simulations, Save results and generate plots if necessary.)
-- Prepare input data for a single simulation or multiple simulations.
-- Execute main function when the script is run directly.
+This script configures which assignment question and scenarios to run,
+executes the optimization via Runner, prints summaries, and can plot duals.
 """
 
 from pathlib import Path
@@ -15,6 +11,16 @@ from utils.utils import print_all_scenarios, get_all_scenarios, select_scenarios
 
 
 def main():
+    """Run configured scenarios end-to-end.
+
+    Steps:
+    - Select question and discover scenarios
+    - Optionally filter scenarios to run
+    - Configure flags (vary_tariff, fixed_da, plotting, horizon)
+    - Execute all simulations using Runner
+    - Print scenario summaries and export duals
+    - Optionally plot duals from exported .txt files
+    """
     # question_1a, question_1b, question_1c, or question_2b
     question = 'question_2b'
     
@@ -47,15 +53,13 @@ def main():
                         fixed_da=fixed_da) 
     
     # Plot duals
-    show_dual_plots = False # [True,False]
-    save_dual_plots = False # [True,False]
-    return
+    
     from data_ops.data_visualizer import plot_duals_from_txt
     duals_dir = Path(f"txt/{question}")
     for dual_file in duals_dir.glob("duals_*.txt"):
         plot_duals_from_txt(str(dual_file), 
-                            save_plot=save_dual_plots, 
-                            show_plot=show_dual_plots, 
+                            save_plot=True, 
+                            show_plot=False, 
                             out_dir=f"img/duals/{question}/")
 
 if __name__ == "__main__":

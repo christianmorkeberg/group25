@@ -1,12 +1,24 @@
+"""Scenario orchestration and plotting runner."""
+
 from pathlib import Path
 from typing import Dict, List
 from data_ops.data_visualizer import DataVisualizer
 
 class Runner:
+    """Coordinates simulations across scenarios and plotting.
+
+    Responsibilities:
+    - Manage configuration flags (plotting, horizon, tariff/price options)
+    - Load inputs per scenario and run the optimization model
+    - Aggregate and return results for printing/exporting
+    - Trigger comparative plots and sensitivity plots (for question 2b)
+    """
     @staticmethod
     def _results_flat_to_lists(results: dict) -> dict:
-        """
-        Convert flat results dict (e.g., 'p_import_0', 'p_import_1', ...) to dict of lists (e.g., 'p_import': [...]).
+        """Convert flat keys into list series.
+
+        Converts results like {'p_import_0': 1.0, 'p_import_1': 2.0}
+        into {'p_import': [1.0, 2.0]}. Non-indexed keys are kept as-is.
         """
         from collections import defaultdict
         import re
@@ -28,23 +40,27 @@ class Runner:
             else:
                 out[base] = values
         return out
-    """
-    Handles configuration setting, data loading and preparation, model(s) execution, results saving and ploting
-    """
 
     def __init__(self,show_plots=False,save_plots=False,question=None,num_hours=24,vary_tariff=False,fixed_da=None) -> None:
+        """Initialize the Runner with execution flags and context."""
         self.show_plots = show_plots
         self.save_plots = save_plots
         self.question = question
         self.num_hours = num_hours # default, will be updated in run_single_simulation
         self.vary_tariff = vary_tariff
         self.fixed_da = fixed_da
-        """Initialize the Runner."""
 
     def run_single_simulation(self, question, input_path, scaling_path):
-        """
-        Run a single simulation for a given question, input path, and scaling file.
-        Returns results and profit.
+        """Run a single simulation for a given scaling file.
+
+        Args:
+            question: Assignment question id (e.g., 'question_1a').
+            input_path: Path to the question's data directory.
+            scaling_path: Path to the scenario scaling JSON.
+
+        Returns:
+            Tuple (results: dict, profit: float) where results include
+            time series and metadata needed for plotting and reporting.
         """
         import json
         from data_ops.data_loader import DataLoader
@@ -83,9 +99,15 @@ class Runner:
         return results, profit
 
     def run_all_simulations(self, question, input_path, scenario_files):
-        """
-        Run all simulations for the provided scenario scaling files.
-        Returns a dict of scenario results and profits.
+        """Run all simulations for the provided scenarios and plot.
+
+        Args:
+            question: Assignment question id.
+            input_path: Base path to the question data.
+            scenario_files: Mapping scenario_name -> scaling file path.
+
+        Returns:
+            Dict mapping scenario_name -> {'results': dict, 'profit': float}.
         """
         visualizer = DataVisualizer(question=self.question)
         scenario_results = {}

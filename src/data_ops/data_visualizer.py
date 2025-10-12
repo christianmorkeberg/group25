@@ -1,7 +1,10 @@
+"""Visualization utilities for scenarios, tariffs/prices, and duals."""
+
 import matplotlib.pyplot as plt
 import os
 
 class DataVisualizer:
+    """Aggregate scenario results and provide plotting utilities."""
     def plot_battery_capacity_vs_price(self, price_coeff_key="battery_price_coeff", cap_key="p_bat_cap", show_plot=True, save_plot=False, fixed_da=None, vary_tariff=False):
         """
         Plots battery capacity as a function of battery price coefficient across scenarios.
@@ -77,10 +80,8 @@ class DataVisualizer:
             print(f"Plot saved: {filename}")
         if show_plot:
             plt.show()
-    """
-    Modular class for visualizing optimization results and comparing scenarios.
-    """
     def __init__(self, question=None):
+        """Initialize the visualizer with an optional question identifier."""
         self.scenarios = {}
         self.question = question
 
@@ -251,9 +252,7 @@ class DataVisualizer:
 
 def plot_da_price():
 
-    """
-    Plots the DA price for a given scenario and saves it in the appropriate img/question folder.
-    """
+    """Plot DA prices from question_1a bus params and save to img/other."""
     import json
     from pathlib import Path
     import os 
@@ -290,6 +289,7 @@ def plot_duals_from_txt(dual_file_path, include=None, exclude=None, show_plot=Tr
 
     The function detects time-indexed constraints by names ending with _<int> (e.g., balance_5) and
     plots each base name as a line over time. Non-indexed (scalar) duals are printed to console.
+    By default, excludes 'excl' series and suppresses 'balance'/'soc_update' unless explicitly included.
     """
     import re
     import os

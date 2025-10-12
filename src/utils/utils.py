@@ -1,9 +1,15 @@
+"""Utility helpers for scenario selection, printing, and IO."""
+
 import os
 
 # Utility: get a unique filename by appending a number if needed
 def get_unique_filename(base_name):
+    """Return a unique filename by appending a number if needed.
+
+    Note: Currently returns the base_name unchanged in this project setup.
+    Keep logic below for future uniquifying if needed.
+    """
     return base_name
-    """Return a unique filename by appending a number if needed."""
     name, ext = os.path.splitext(base_name)
     i = 1
     candidate = base_name
@@ -14,6 +20,11 @@ def get_unique_filename(base_name):
 
 # Print results and profit for a single scenario
 def print_results(results, profit, scenario_name=None):
+    """Pretty-print full results for one scenario.
+
+    Includes objective value and actual profit (if present), selected
+    timeseries keys, and optional true_cost/discomfort if available.
+    """
     if "actual_profit" in results:
         print(f"Actual Profit: {results['actual_profit']:.2f} DKK")
     if results is None:
@@ -44,6 +55,7 @@ def print_results(results, profit, scenario_name=None):
 
 # Print results and profit for a single scenario (small version)
 def print_results_small(results, profit, scenario_name=None):
+    """Print a compact summary for one scenario (selected sums only)."""
     if "actual_profit" in results:
         print(f"Actual Profit: {results['actual_profit']:.2f} DKK")
     if results is None:
@@ -70,6 +82,15 @@ def print_results_small(results, profit, scenario_name=None):
 
 # Print results and profit for all scenarios
 def print_all_scenarios(scenario_results, mode="large",question=None,vary_tariff=False,fixed_da=None):
+    """Print results for all scenarios and export duals to txt files.
+
+    Args:
+        scenario_results: Mapping of scenario -> {'results': dict, 'profit': float}
+        mode: 'large' or 'small' print format
+        question: Question id used to build duals output path
+        vary_tariff: If True, append suffix to duals filename
+        fixed_da: If set, append DA suffix to duals filename
+    """
     print("\n=== Scenario Results ===")
     for name, result in scenario_results.items():
         print(f"\nScenario: {name}")
@@ -101,6 +122,11 @@ from pathlib import Path
 
 # example function to load data from a specified directory
 def load_dataset(question_name):
+    """Load all files under data/<question_name> into a dict.
+
+    JSON is parsed, CSV is loaded via DictReader, others are read as text.
+    Keys are file stems; values are parsed content.
+    """
     base_path = Path("data") / question_name
     result = {}
  
@@ -125,6 +151,11 @@ def load_dataset(question_name):
 
 
 def select_scenarios(d, keys):
+    """Select scenarios by key(s) from a mapping.
+
+    Supports 'All' (case-insensitive) or a single name/list of names.
+    Returns a new dict with only the selected entries.
+    """
     if keys == "All" or keys == ["All"]or keys == ["all"]:
         return d
     if isinstance(keys, str):
@@ -139,7 +170,7 @@ def select_scenarios(d, keys):
     return selected
 
 def get_all_scenarios(question):
-    """Load and return all scenario names from the _scenario_names.json file."""
+    """Load and return all scenario names from the scenarios index JSON."""
     try:
         with open(f'data/scenarios_{question}/_scenario_names.json', 'r') as f:
             scenarios = json.load(f)

@@ -1,3 +1,9 @@
+"""Optimization model and data classes for the energy system.
+
+Contains Consumer, DER, Grid, and EnergySystemModel, and the helper to_list.
+The main entry is EnergySystemModel.build_and_solve_standardized.
+"""
+
 import gurobipy as gp
 from gurobipy import GRB, quicksum
 from gurobipy import Var
@@ -6,6 +12,12 @@ import numpy as np
 # Utility function: ensures that a parameter (scalar or list) is returned as a list of hourly values.
 # This is important for time-series modeling in energy systems, where some parameters may be constant or vary by hour.
 def to_list(v, num_hours,scale=1.0):
+    """Return an hourly list from a scalar or list, applying scale.
+
+    If v is a list, multiply each element by scale. If v is a scalar,
+    repeat it for num_hours and apply scale. If v is falsy and not zero,
+    return a list of None to indicate missing data.
+    """
     if isinstance(v, list):
         return [vi * scale for vi in v]
     else:
@@ -23,6 +35,7 @@ class Consumer:
     - Can be extended for flexible loads and discomfort calculation (how much the consumer dislikes shifting load from a reference profile)
     """
     def __init__(self, usage_preference, appliance_params, reference_profile=None, flexibility_params=None,scale={}):
+        """Initialize Consumer with preferences, appliance params, and scales."""
         self.usage_preference = usage_preference
         self.appliance_params = appliance_params
         self.reference_profile = reference_profile  # For discomfort calculation
@@ -30,6 +43,7 @@ class Consumer:
         self.scale = scale
 
     def get_minimum_energy_requirement(self):
+        """Minimum equivalent full-hours energy requirement (scaled)."""
         # Returns total required energy for the day as equivalent full hours
         # This is the physical constraint for total consumption by appliances
         min = self.usage_preference[0]["load_preferences"][0]["min_total_energy_per_day_hour_equivalent"]
@@ -39,6 +53,7 @@ class Consumer:
             return min*self.scale.get("load_scale",1.0)
     
     def get_maximum_energy_requirement(self):
+        """Maximum equivalent full-hours energy requirement (scaled)."""
         # Returns total required energy for the day as equivalent full hours
         # This is the physical constraint for total consumption by appliances
         max = self.usage_preference[0]["load_preferences"][0]["max_total_energy_per_day_hour_equivalent"]
@@ -48,18 +63,21 @@ class Consumer:
             return max*self.scale.get("load_scale",1.0)
         
     def get_reference_profile(self, num_hours):
+        """Reference load profile list for discomfort calculation (scaled)."""
         # Returns the reference load profile (kWh) for discomfort calculation
         v = self.usage_preference[0].get("load_preferences",{})[0].get("hourly_profile_ratio")
         return to_list(v, num_hours, self.scale.get("reference_profile_scale", 1.0))
         
 
     def get_max_load_per_hour(self):
+        """Maximum load per hour (kWh)."""
         # Returns max load per hour as a list (kWh)
         # This models the physical limit of appliances at each hour
         v = self.appliance_params["load"][0].get("max_load_kWh_per_hour")
         return v
     
     def get_storage_capacity(self):
+        """Battery/storage capacity (kWh), scaled by scenario."""
         v = self.appliance_params.get("storage",[{}])
         if v:
             v = v[0].get("storage_capacity_kWh",0)
@@ -68,6 +86,7 @@ class Consumer:
         return self.scale.get("storage_capacity_scale",1)*v
     
     def get_battery_price_coeff(self):
+        """Battery price coefficient used in question 2b objective penalty."""
         v = self.appliance_params.get("storage",[{}])
         if v:
             v = v[0].get("battery_price_coeff",1)
@@ -76,6 +95,7 @@ class Consumer:
         return v*self.scale.get("battery_price_coeff_scale",1)
 
     def get_max_charging_power(self):
+        """Max charging power ratio per hour, scaled."""
         v = self.appliance_params.get("storage",[{}])
         if v: 
             v = v[0].get("max_charging_power_ratio",0)
@@ -84,6 +104,7 @@ class Consumer:
         return self.scale.get("max_charge_power_scale",1)*v
     
     def get_max_discharging_power(self):
+        """Max discharging power ratio per hour, scaled."""
         v = self.appliance_params.get("storage",[{}])
         if v: 
             v=v[0].get("max_discharging_power_ratio",0)
@@ -92,6 +113,7 @@ class Consumer:
         return self.scale.get("max_discharge_power_scale",1)*v
     
     def get_charging_efficiency(self):
+        """Charging efficiency (0-1)."""
         v = self.appliance_params.get("storage")
         
         if v: 
@@ -101,6 +123,7 @@ class Consumer:
         return v
     
     def get_discharging_efficiency(self):
+        """Discharging efficiency (0-1)."""
         v = self.appliance_params.get("storage")
         if v:
             v = v[0].get("discharging_efficiency", 1)
@@ -109,6 +132,7 @@ class Consumer:
         return v
 
     def get_initial_soc(self):
+        """Initial state of charge ratio (0-1), scaled if configured."""
         v = self.usage_preference[0].get("storage_preferences")
         if v:
             v = v[0].get("initial_soc_ratio", 0)
@@ -117,6 +141,7 @@ class Consumer:
         return self.scale.get("initial_soc_ratio", 1) * v
 
     def get_minimum_soc(self):
+        """Minimum state of charge ratio (0-1), scaled if configured."""
         v = self.usage_preference[0].get("storage_preferences")
         if v:
             v = v[0].get("minimum_soc_ratio", 0)
@@ -125,6 +150,7 @@ class Consumer:
         return self.scale.get("soc_min", 1) * v
 
     def get_final_soc(self):
+        """Final state of charge ratio (0-1), scaled if configured."""
         v = self.usage_preference[0].get("storage_preferences")
         if v:
             v = v[0].get("final_soc_ratio", 0)
@@ -141,18 +167,21 @@ class DER:
     - Battery: (future) enables energy storage and shifting
     """
     def __init__(self, der_production, appliance_params,battery=None,scale ={}):
+        """Initialize DER with production profiles, appliance params, and scales."""
         self.der_production = der_production
         self.battery = battery  # For future battery integration
         self.scale = scale
         self.appliance_params = appliance_params
 
     def get_pv_profile(self, num_hours):
+        """Return hourly PV production profile (kWh), scaled."""
         # Returns PV hourly profile (kWh produced each hour)
         # This is the physical renewable generation available to the consumer
         v = self.der_production[0].get("hourly_profile_ratio")
         return to_list(v, num_hours,self.scale.get("pv_scale",1.0))
     
     def get_max_pv_capacity(self):
+        """Return max PV capacity (kW) from appliance parameters."""
         v = self.appliance_params["DER"][0].get("max_power_kW")
         return v
 
@@ -162,6 +191,7 @@ class Grid:
     Represents grid parameters: tariffs, limits, prices.
     """
     def __init__(self, bus_params,scale={}):
+        """Initialize Grid with bus params and scales."""
         self.bus_params = bus_params
         self.scale = scale
 
@@ -172,26 +202,31 @@ class Grid:
     - Prices: market price for electricity
     """
     def get_import_tariff(self, num_hours):
+        """Hourly import tariff list (DKK/kWh), scaled."""
         # Cost to import electricity from the grid (DKK/kWh)
         v = self.bus_params[0].get("import_tariff_DKK/kWh")
         return to_list(v, num_hours,self.scale.get("import_tariff_scale",1.0))
 
     def get_export_tariff(self, num_hours):
+        """Hourly export tariff list (DKK/kWh), scaled."""
         # Revenue for exporting electricity to the grid (DKK/kWh)
         v = self.bus_params[0].get("export_tariff_DKK/kWh")
         return to_list(v, num_hours,self.scale.get("export_tariff_scale",.10))
 
     def get_energy_price(self, num_hours):
+        """Hourly DA energy price list (DKK/kWh), scaled."""
         # Market price for electricity (DKK/kWh)
         v = self.bus_params[0].get("energy_price_DKK_per_kWh")
         return to_list(v, num_hours,self.scale.get("price_scale",1.0))
 
     def get_max_import(self):
+        """Max import power (kW), scaled."""
         # Maximum power that can be imported from the grid each hour (kW)
         v = self.bus_params[0].get("max_import_kW")
         return v* self.scale.get("max_import_kW",1.0)
 
     def get_max_export(self):
+        """Max export power (kW), scaled."""
         # Maximum power that can be exported to the grid each hour (kW)
         v = self.bus_params[0].get("max_export_kW")
         return v*self.scale.get("max_export_kW",1.0)
@@ -200,8 +235,10 @@ class Grid:
 
 # Main energy system optimization model
 class EnergySystemModel:
+    """Encapsulates the optimization model for the energy system."""
 
     def __init__(self, consumer, der, grid):
+        """Initialize with data classes for consumer, DER, and grid."""
         self.consumer = consumer
         self.der = der
         self.grid = grid
@@ -209,6 +246,18 @@ class EnergySystemModel:
         self.results = None
 
     def build_and_solve_standardized(self, debug=False, question="question_1a",num_hours=24,vary_tariff=False,fixed_da=None):
+        """Build and solve the optimization model.
+
+        Args:
+            debug: If True, print data checks.
+            question: Assignment question variant (1a/1b/1c/2b) controlling objective/constraints.
+            num_hours: Time horizon length.
+            vary_tariff: If True, randomly scales tariffs per hour.
+            fixed_da: If set to a float, overrides day-ahead price to this constant.
+
+        Returns:
+            (results: dict, objVal: float) on optimal solution, else (None, None).
+        """
         T = list(range(num_hours))
 
         # Create model

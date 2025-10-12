@@ -241,8 +241,8 @@ class EnergySystemModel:
         P_down   = self.grid.get_max_import()
         P_up     = self.grid.get_max_export()
         if question == "question_2b":
-            P_down   = min(P_down,6.0)
-            P_up     = min(P_up,6.0)
+            P_down   = min(P_down,17.0)
+            P_up     = min(P_up,17.0)
         P_L_max  = self.consumer.get_max_load_per_hour()
         battery_price_coeff = self.consumer.get_battery_price_coeff()
         if question in ["question_2b"]:

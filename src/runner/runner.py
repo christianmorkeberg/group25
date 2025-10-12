@@ -104,7 +104,7 @@ class Runner:
                                        vary_tariff=self.vary_tariff)
             if self.question == "question_2b":
                 # Plot the p_bat_cap for question 2b using plot_battery_capacity_vs_price 
-                visualizer.plot_battery_capacity_vs_price(show_plot=self.show_plots, save_plot=self.save_plots)
+                visualizer.plot_battery_capacity_vs_price(show_plot=self.show_plots, save_plot=self.save_plots,fixed_da=self.fixed_da,vary_tariff=self.vary_tariff)
 
                 
         return scenario_results

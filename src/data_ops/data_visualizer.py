@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import os
 
 class DataVisualizer:
-    def plot_battery_capacity_vs_price(self, price_coeff_key="battery_price_coeff", cap_key="p_bat_cap", show_plot=True, save_plot=False):
+    def plot_battery_capacity_vs_price(self, price_coeff_key="battery_price_coeff", cap_key="p_bat_cap", show_plot=True, save_plot=False, fixed_da=None, vary_tariff=False):
         """
         Plots battery capacity as a function of battery price coefficient across scenarios.
         price_coeff_key: key in results or scenario label for battery price coefficient
@@ -57,13 +57,22 @@ class DataVisualizer:
         plt.plot(x_vals_f, y_vals_f, marker="o", linestyle="-", color="tab:blue")
         plt.xlabel("Battery Price Coefficient")
         plt.ylabel("Optimal Battery Capacity (kWh)")
-        plt.title("Battery Capacity vs. Battery Price Coefficient")
+        title = "Battery Capacity vs. Battery Price Coefficient"
+        if fixed_da and isinstance(fixed_da,(int,float)):
+            title += f" (fixed DA={fixed_da})"
+        if vary_tariff:
+            title += " (varying tariff)"
+        plt.title(title)
         plt.grid(True, linestyle="--", alpha=0.5)
         plt.tight_layout()
         if save_plot:
             img_dir = os.path.join("img", self.question if self.question else "")
             os.makedirs(img_dir, exist_ok=True)
             filename = os.path.join(img_dir, "battery_capacity_vs_price.png")
+            if fixed_da and isinstance(fixed_da,(int,float)):
+                filename = filename.replace(".png", f"_fixedDA{fixed_da}.png")
+            if vary_tariff:
+                filename = filename.replace(".png", f"_varyTariff.png")
             plt.savefig(filename)
             print(f"Plot saved: {filename}")
         if show_plot:
